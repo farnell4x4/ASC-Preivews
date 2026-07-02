@@ -18,18 +18,18 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
         style={{
           width: "100%",
           aspectRatio: isTablet ? "0.78 / 1" : "0.49 / 1",
-          borderRadius: isTablet ? "7.5%" : "10.5%",
+          borderRadius: isTablet ? "7.5% / 5.85%" : "10.5% / 5.15%",
           padding: isTablet ? "2.2%" : "2.7%",
         }}
       >
-        {/* Right power button */}
+        {/* Right power button - keep current position */}
         <div
           className="absolute bg-[#0b1120]"
           style={{
-            right: "-1.1%",
+            right: "-1.05%",
             top: "28%",
-            width: "1.3%",
-            height: isTablet ? "10%" : "11%",
+            width: "1.15%",
+            height: isTablet ? "9%" : "10%",
             borderRadius: "999px",
             boxShadow: "inset -1px 0 1px rgba(255,255,255,0.16)",
           }}
@@ -39,10 +39,10 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
         <div
           className="absolute bg-[#0b1120]"
           style={{
-            left: "-1.1%",
-            top: "27%",
-            width: "1.3%",
-            height: isTablet ? "8.5%" : "9.5%",
+            left: "-1.05%",
+            top: isTablet ? "22%" : "23%",
+            width: "1.15%",
+            height: isTablet ? "7.5%" : "8.5%",
             borderRadius: "999px",
             boxShadow: "inset 1px 0 1px rgba(255,255,255,0.16)",
           }}
@@ -52,10 +52,10 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
         <div
           className="absolute bg-[#0b1120]"
           style={{
-            left: "-1.1%",
-            top: "38%",
-            width: "1.3%",
-            height: isTablet ? "8.5%" : "9.5%",
+            left: "-1.05%",
+            top: isTablet ? "33%" : "34%",
+            width: "1.15%",
+            height: isTablet ? "7.5%" : "8.5%",
             borderRadius: "999px",
             boxShadow: "inset 1px 0 1px rgba(255,255,255,0.16)",
           }}
@@ -65,7 +65,7 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
         <div
           className="relative h-full w-full overflow-hidden bg-white"
           style={{
-            borderRadius: isTablet ? "5.8%" : "8.2%",
+            borderRadius: isTablet ? "5.8% / 4.5%" : "8.2% / 4%",
           }}
         >
           {screenshotUrl ? (
@@ -123,14 +123,15 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
             />
           )}
 
-          {/* subtle glass */}
+          {/* Subtle glass */}
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.16),transparent_24%,transparent_62%,rgba(255,255,255,0.05)_100%)]" />
         </div>
 
         {/* Outer edge highlight */}
         <div
-          className="pointer-events-none absolute inset-0 rounded-[inherit]"
+          className="pointer-events-none absolute inset-0"
           style={{
+            borderRadius: isTablet ? "7.5% / 5.85%" : "10.5% / 5.15%",
             boxShadow:
               "inset 0 0 0 1px rgba(255,255,255,0.14), inset 0 16px 28px rgba(255,255,255,0.07), inset 0 -18px 30px rgba(0,0,0,0.22)",
           }}
