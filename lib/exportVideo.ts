@@ -4,6 +4,8 @@ import { drawEditorFrame } from "@/lib/exportImage";
 import type { CanvasPreset, EditorState } from "@/lib/types";
 
 const EXPORT_FPS = 30;
+const MIN_APP_PREVIEW_DURATION_SECONDS = 15;
+const MAX_APP_PREVIEW_DURATION_SECONDS = 30;
 
 export async function exportStateAsVideo(preset: CanvasPreset, state: EditorState) {
   if (!state.uploadedMediaUrl) {
@@ -17,7 +19,7 @@ export async function exportStateAsVideo(preset: CanvasPreset, state: EditorStat
   const videoFormat = getSupportedVideoFormat();
 
   if (!videoFormat) {
-    throw new Error("This browser cannot encode a local WebM or MP4 export.");
+    throw new Error("This browser cannot encode an App Store Connect-ready H.264 MP4.");
   }
 
   const canvas = document.createElement("canvas");
@@ -31,8 +33,11 @@ export async function exportStateAsVideo(preset: CanvasPreset, state: EditorStat
 
   const video = await createExportVideoElement(state.uploadedMediaUrl);
   const duration = getSafeDuration(video.duration);
+  validateAppPreviewDuration(duration);
+
   const stream = canvas.captureStream(EXPORT_FPS);
-  const recorder = new MediaRecorder(stream, {
+  const videoOnlyStream = new MediaStream(stream.getVideoTracks());
+  const recorder = new MediaRecorder(videoOnlyStream, {
     mimeType: videoFormat.mimeType,
     videoBitsPerSecond: getVideoBitrate(preset),
   });
@@ -60,6 +65,7 @@ export async function exportStateAsVideo(preset: CanvasPreset, state: EditorStat
     video.pause();
     recorder.stop();
     stream.getTracks().forEach((track) => track.stop());
+    videoOnlyStream.getTracks().forEach((track) => track.stop());
   }
 
   const blob = await recordingDone;
@@ -71,7 +77,6 @@ export async function exportStateAsVideo(preset: CanvasPreset, state: EditorStat
   return {
     blob,
     extension: videoFormat.extension,
-    isAppleCompatible: videoFormat.isAppleCompatible,
     label: videoFormat.label,
   };
 }
@@ -79,46 +84,39 @@ export async function exportStateAsVideo(preset: CanvasPreset, state: EditorStat
 function getSupportedVideoFormat() {
   const candidates = [
     {
+      mimeType: 'video/mp4;codecs="avc1.640028"',
+      extension: "mp4",
+      label: "H.264 MP4",
+    },
+    {
+      mimeType: 'video/mp4;codecs="avc1.4D4028"',
+      extension: "mp4",
+      label: "H.264 MP4",
+    },
+    {
+      mimeType: 'video/mp4;codecs="avc1.42C028"',
+      extension: "mp4",
+      label: "H.264 MP4",
+    },
+    {
       mimeType: 'video/mp4;codecs="avc1.42E01E"',
       extension: "mp4",
-      isAppleCompatible: true,
-      label: "MP4",
+      label: "H.264 MP4",
     },
     {
       mimeType: "video/mp4;codecs=avc1.42E01E",
       extension: "mp4",
-      isAppleCompatible: true,
-      label: "MP4",
+      label: "H.264 MP4",
     },
     {
       mimeType: "video/mp4;codecs=h264",
       extension: "mp4",
-      isAppleCompatible: true,
-      label: "MP4",
+      label: "H.264 MP4",
     },
     {
       mimeType: "video/mp4",
       extension: "mp4",
-      isAppleCompatible: true,
-      label: "MP4",
-    },
-    {
-      mimeType: "video/webm;codecs=vp9",
-      extension: "webm",
-      isAppleCompatible: false,
-      label: "WebM",
-    },
-    {
-      mimeType: "video/webm;codecs=vp8",
-      extension: "webm",
-      isAppleCompatible: false,
-      label: "WebM",
-    },
-    {
-      mimeType: "video/webm",
-      extension: "webm",
-      isAppleCompatible: false,
-      label: "WebM",
+      label: "H.264 MP4",
     },
   ];
 
@@ -217,6 +215,18 @@ function seekVideo(video: HTMLVideoElement, currentTime: number) {
 
 function getSafeDuration(duration: number) {
   return Number.isFinite(duration) && duration > 0 ? duration : 1;
+}
+
+function validateAppPreviewDuration(duration: number) {
+  if (duration < MIN_APP_PREVIEW_DURATION_SECONDS || duration > MAX_APP_PREVIEW_DURATION_SECONDS) {
+    throw new Error(
+      `App Preview videos must be ${MIN_APP_PREVIEW_DURATION_SECONDS}-${MAX_APP_PREVIEW_DURATION_SECONDS} seconds. This video is ${formatDuration(duration)}.`,
+    );
+  }
+}
+
+function formatDuration(duration: number) {
+  return `${Math.round(duration * 10) / 10}s`;
 }
 
 function getVideoBitrate(preset: CanvasPreset) {

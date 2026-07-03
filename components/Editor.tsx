@@ -6,7 +6,13 @@ import { ExportButton } from "@/components/ExportButton";
 import { PhoneMockup } from "@/components/PhoneMockup";
 import { ScreenshotCanvas } from "@/components/ScreenshotCanvas";
 import { getBackgroundModeLabel, getBackgroundStyle } from "@/lib/backgroundStyle";
-import { defaultPreset, canvasPresets } from "@/lib/canvasPresets";
+import {
+  canvasPresets,
+  defaultPreset,
+  defaultVideoPreset,
+  imageCanvasPresets,
+  videoCanvasPresets,
+} from "@/lib/canvasPresets";
 import {
   type ControlPanelPosition,
   DEFAULT_SESSION_ID,
@@ -112,9 +118,10 @@ export function Editor() {
   const [fitHeight, setFitHeight] = useState(720);
 
   const selectedPreset = useMemo(
-    () => canvasPresets.find((preset) => preset.id === state.selectedPresetId) ?? defaultPreset,
-    [state.selectedPresetId],
+    () => getPresetForMediaType(state.selectedPresetId, state.mediaType),
+    [state.mediaType, state.selectedPresetId],
   );
+  const availablePresets = state.mediaType === "video" ? videoCanvasPresets : imageCanvasPresets;
   const fitScale = Math.min(
     previewViewportWidth / selectedPreset.width,
     fitHeight / selectedPreset.height,
@@ -153,6 +160,10 @@ export function Editor() {
         })
         .filter((item): item is { id: string; displayName: string; state: EditorState } => Boolean(item)),
     [activeSessionId, loadedSessionIds, savedSessionMap, state],
+  );
+  const loadedImagePreviewItems = useMemo(
+    () => loadedPreviewItems.filter((item) => item.state.mediaType === "image"),
+    [loadedPreviewItems],
   );
 
   const refreshSavedSessions = async () => {
@@ -580,18 +591,24 @@ export function Editor() {
                 ...savedSession.state,
               }
             : null;
-          const presetForFile =
-            canvasPresets.find(
-              (preset) =>
-                preset.id === (restoredState?.selectedPresetId ?? baseState.selectedPresetId),
-            ) ?? defaultPreset;
           const mediaDimensions =
             mediaType === "video"
               ? await readVideoDimensions(nextUrl)
               : await readImageDimensions(nextUrl);
+          const presetForFile =
+            mediaType === "video"
+              ? getVideoPresetForDimensions(mediaDimensions)
+              : getPresetForMediaType(
+                  restoredState?.selectedPresetId ?? baseState.selectedPresetId,
+                  "image",
+                );
           const nextState = restoredState
             ? {
                 ...restoredState,
+                selectedPresetId:
+                  mediaType === "video"
+                    ? getPresetForMediaType(restoredState.selectedPresetId, "video", mediaDimensions).id
+                    : getPresetForMediaType(restoredState.selectedPresetId, "image").id,
                 mediaType,
                 uploadedScreenshotUrl: mediaType === "image" ? nextUrl : null,
                 uploadedMediaUrl: nextUrl,
@@ -675,16 +692,12 @@ export function Editor() {
 
     try {
       if (state.mediaType === "video") {
-        const { blob, extension, isAppleCompatible, label } = await exportStateAsVideo(selectedPreset, state);
+        const { blob, extension, label } = await exportStateAsVideo(selectedPreset, state);
         downloadBlob(
           blob,
-          `asc-preview-${selectedPreset.width}x${selectedPreset.height}.${extension}`,
+          `app-preview-${selectedPreset.width}x${selectedPreset.height}.${extension}`,
         );
-        setStatusMessage(
-          isAppleCompatible
-            ? `Exported ${selectedPreset.width}x${selectedPreset.height} ${label} for QuickTime and Photos.`
-            : `Exported ${label}; this browser cannot encode Apple-compatible MP4 locally.`,
-        );
+        setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} audio-free ${label}.`);
       } else {
         const blob = await exportStateAsPng(selectedPreset, state);
         downloadBlob(
@@ -694,7 +707,8 @@ export function Editor() {
         setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} PNG.`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to export PNG.";
+      const fallbackMessage = state.mediaType === "video" ? "Unable to export video." : "Unable to export PNG.";
+      const message = error instanceof Error ? error.message : fallbackMessage;
       setStatusMessage(message);
     } finally {
       setIsExporting(false);
@@ -702,34 +716,25 @@ export function Editor() {
   };
 
   const handleExportAll = async () => {
-    if (loadedPreviewItems.length === 0) {
-      setStatusMessage("Load files into the canvas strip to export all.");
+    if (loadedImagePreviewItems.length === 0) {
+      setStatusMessage("Load image files into the canvas strip to export all images.");
       return;
     }
 
     setIsExporting(true);
-    setStatusMessage(`Rendering ${loadedPreviewItems.length} loaded exports...`);
+    setStatusMessage(`Rendering ${loadedImagePreviewItems.length} loaded image exports...`);
 
     try {
-      for (const item of loadedPreviewItems) {
-        const itemPreset =
-          canvasPresets.find((preset) => preset.id === item.state.selectedPresetId) ?? defaultPreset;
-        if (item.state.mediaType === "video") {
-          const { blob, extension } = await exportStateAsVideo(itemPreset, item.state);
-          downloadBlob(
-            blob,
-            `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.${extension}`,
-          );
-        } else {
-          const blob = await exportStateAsPng(itemPreset, item.state);
-          downloadBlob(
-            blob,
-            `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.png`,
-          );
-        }
+      for (const item of loadedImagePreviewItems) {
+        const itemPreset = getPresetForMediaType(item.state.selectedPresetId, item.state.mediaType);
+        const blob = await exportStateAsPng(itemPreset, item.state);
+        downloadBlob(
+          blob,
+          `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.png`,
+        );
       }
 
-      setStatusMessage(`Exported ${loadedPreviewItems.length} loaded files.`);
+      setStatusMessage(`Exported ${loadedImagePreviewItems.length} loaded images.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to export all PNGs.";
       setStatusMessage(message);
@@ -863,8 +868,7 @@ export function Editor() {
                 {loadedPreviewItems.length > 0 ? (
                   loadedPreviewItems.map((item) => {
                     const itemPreset =
-                      canvasPresets.find((preset) => preset.id === item.state.selectedPresetId) ??
-                      defaultPreset;
+                      getPresetForMediaType(item.state.selectedPresetId, item.state.mediaType);
                     const itemScale =
                       Math.min(Math.min(previewViewportWidth, 420) / itemPreset.width, fitHeight / itemPreset.height) *
                       previewZoom;
@@ -1063,7 +1067,7 @@ export function Editor() {
                           onChange={(event) => handleStateChange("selectedPresetId", event.target.value)}
                           className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none ring-0 transition focus:border-blue-400"
                         >
-                          {canvasPresets.map((preset) => (
+                          {availablePresets.map((preset) => (
                             <option key={preset.id} value={preset.id}>
                               {preset.label} ({preset.width}x{preset.height})
                             </option>
@@ -1121,8 +1125,8 @@ export function Editor() {
                                     screenshotUrl={session.mediaType === "image" ? session.previewUrl : null}
                                     videoUrl={session.mediaType === "video" ? session.previewUrl : null}
                                     device={
-                                      (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
-                                        defaultPreset).device
+                                      getPresetForMediaType(session.state.selectedPresetId, session.state.mediaType)
+                                        .device
                                     }
                                     cornerScale={session.state.phoneCornerScale}
                                     showVideoControls={false}
@@ -1294,7 +1298,7 @@ export function Editor() {
                         <ExportButton
                           isExporting={isExporting}
                           onExport={handleExportAll}
-                          label={`Export All Loaded (${loadedPreviewItems.length})`}
+                          label={`Export All Images (${loadedImagePreviewItems.length})`}
                         />
                       ) : (
                         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
@@ -1682,6 +1686,25 @@ function getAutoFitPhoneLayout(
     phoneY: clamp(phoneY, 18, 82),
     phoneRotation: 0,
   };
+}
+
+function getPresetForMediaType(
+  presetId: string,
+  mediaType: EditorMediaType,
+  mediaDimensions?: { width: number; height: number },
+) {
+  if (mediaType === "video") {
+    return (
+      videoCanvasPresets.find((preset) => preset.id === presetId) ??
+      (mediaDimensions ? getVideoPresetForDimensions(mediaDimensions) : defaultVideoPreset)
+    );
+  }
+
+  return imageCanvasPresets.find((preset) => preset.id === presetId) ?? defaultPreset;
+}
+
+function getVideoPresetForDimensions(dimensions: { width: number; height: number }) {
+  return dimensions.width > dimensions.height ? videoCanvasPresets[1] : videoCanvasPresets[0];
 }
 
 function hasLoadedMedia(state: EditorState) {
