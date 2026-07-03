@@ -1,7 +1,7 @@
 import type { EditorState } from "@/lib/types";
 
 const DATABASE_NAME = "asc-screenshot-maker";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const SESSION_STORE_NAME = "editorSessions";
 const META_STORE_NAME = "editorMeta";
 const ACTIVE_SESSION_KEY = "activeSessionId";
@@ -18,6 +18,7 @@ export type SavedEditorSessionSummary = {
   id: string;
   displayName: string;
   previewUrl: string | null;
+  mediaType: EditorState["mediaType"];
   updatedAt: number;
   state: EditorState;
 };
@@ -34,7 +35,7 @@ type MetaRecord = {
 };
 
 export function getFileSessionId(file: File) {
-  return `file:${file.name}:${file.size}:${file.lastModified}`;
+  return `file:${file.type}:${file.name}:${file.size}:${file.lastModified}`;
 }
 
 export function getDefaultSessionName() {
@@ -69,7 +70,7 @@ export async function saveEditorSession(sessionId: string, session: PersistedEdi
     const request = store.put({
       id: sessionId,
       state: session.state,
-      displayName: getSessionDisplayName(sessionId, session.state.uploadedScreenshotUrl),
+      displayName: getSessionDisplayName(sessionId, getSessionMediaUrl(session.state), session.state.mediaName),
       updatedAt: Date.now(),
     } satisfies SessionRecord);
 
@@ -90,12 +91,13 @@ export async function listSavedEditorSessions() {
 
     request.onsuccess = () => {
       const records = (request.result as SessionRecord[])
-        .filter((record) => record.id !== DEFAULT_SESSION_ID && record.state.uploadedScreenshotUrl)
+        .filter((record) => record.id !== DEFAULT_SESSION_ID && getSessionMediaUrl(record.state))
         .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
         .map((record) => ({
           id: record.id,
           displayName: record.displayName ?? "Saved file",
-          previewUrl: record.state.uploadedScreenshotUrl,
+          previewUrl: getSessionMediaUrl(record.state),
+          mediaType: record.state.mediaType ?? "image",
           updatedAt: record.updatedAt ?? 0,
           state: record.state,
         }));
@@ -107,6 +109,10 @@ export async function listSavedEditorSessions() {
       reject(request.error ?? new Error("Unable to list saved editor sessions."));
     };
   });
+}
+
+function getSessionMediaUrl(state: EditorState) {
+  return state.uploadedMediaUrl ?? state.uploadedScreenshotUrl;
 }
 
 export async function loadActiveSessionId() {
@@ -294,7 +300,11 @@ function openDatabase() {
   });
 }
 
-function getSessionDisplayName(sessionId: string, screenshotUrl: string | null) {
+function getSessionDisplayName(sessionId: string, mediaUrl?: string | null, mediaName?: string | null) {
+  if (mediaName) {
+    return mediaName;
+  }
+
   if (sessionId === DEFAULT_SESSION_ID) {
     return getDefaultSessionName();
   }
@@ -309,7 +319,7 @@ function getSessionDisplayName(sessionId: string, screenshotUrl: string | null) 
   const sizeSeparator = remainder.lastIndexOf(":");
 
   if (sizeSeparator === -1) {
-    return screenshotUrl ? "Saved file" : "Untitled file";
+    return mediaUrl ? "Saved file" : "Untitled file";
   }
 
   const withoutTimestamp = remainder.slice(0, sizeSeparator);
@@ -319,5 +329,12 @@ function getSessionDisplayName(sessionId: string, screenshotUrl: string | null) 
     return withoutTimestamp || "Saved file";
   }
 
-  return withoutTimestamp.slice(0, nameSeparator) || "Saved file";
+  const withoutSize = withoutTimestamp.slice(0, nameSeparator);
+  const typeSeparator = withoutSize.indexOf(":");
+
+  if (typeSeparator !== -1 && withoutSize.slice(0, typeSeparator).includes("/")) {
+    return withoutSize.slice(typeSeparator + 1) || "Saved file";
+  }
+
+  return withoutSize || "Saved file";
 }

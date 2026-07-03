@@ -4,18 +4,24 @@ import type { DeviceKind } from "@/lib/types";
 
 type PhoneMockupProps = {
   screenshotUrl: string | null;
+  videoUrl?: string | null;
   device: DeviceKind;
   renderScale?: number;
   cornerScale?: number;
   frameWidthPx?: number;
+  showVideoControls?: boolean;
+  onVideoTimeUpdate?: (currentTime: number, duration: number) => void;
 };
 
 export function PhoneMockup({
   screenshotUrl,
+  videoUrl = null,
   device,
   renderScale = 1,
   cornerScale = 1,
   frameWidthPx,
+  showVideoControls = true,
+  onVideoTimeUpdate,
 }: PhoneMockupProps) {
   const isTablet = device === "tablet";
   const scalePx = (value: number) => `${value * renderScale}px`;
@@ -84,7 +90,27 @@ export function PhoneMockup({
             overflow: "hidden",
           }}
         >
-          {screenshotUrl ? (
+          {videoUrl ? (
+            <video
+              src={videoUrl}
+              className="block h-full w-full object-cover"
+              controls={showVideoControls}
+              muted
+              playsInline
+              onLoadedMetadata={(event) =>
+                onVideoTimeUpdate?.(
+                  event.currentTarget.currentTime,
+                  event.currentTarget.duration,
+                )
+              }
+              onTimeUpdate={(event) =>
+                onVideoTimeUpdate?.(
+                  event.currentTarget.currentTime,
+                  event.currentTarget.duration,
+                )
+              }
+            />
+          ) : screenshotUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={screenshotUrl}

@@ -21,7 +21,31 @@ rm -rf "$ROOT_DIR/.next"
 echo "Opening Safari..."
 (
   sleep 3
-  open -a Safari "$URL"
+  osascript <<'APPLESCRIPT'
+set targetUrl to "http://localhost:3000"
+set foundTab to false
+
+tell application "Safari"
+  activate
+
+  repeat with w in windows
+    repeat with t in tabs of w
+      if URL of t starts with targetUrl then
+        set current tab of w to t
+        set index of w to 1
+        set foundTab to true
+        exit repeat
+      end if
+    end repeat
+
+    if foundTab then exit repeat
+  end repeat
+
+  if not foundTab then
+    open location targetUrl
+  end if
+end tell
+APPLESCRIPT
 ) &
 
 echo "Starting local dev server..."

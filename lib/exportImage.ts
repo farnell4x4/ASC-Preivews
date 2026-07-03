@@ -1,6 +1,7 @@
 "use client";
 
 import { computeCanvasLayout } from "@/lib/canvasLayout";
+import { getTimelineTextState } from "@/lib/timelineText";
 import type { CanvasPreset, EditorState } from "@/lib/types";
 
 const FONT_FAMILY =
@@ -16,21 +17,34 @@ export async function exportStateAsPng(preset: CanvasPreset, state: EditorState)
     throw new Error("Unable to create export canvas.");
   }
 
-  const layout = computeCanvasLayout(preset, state, 1);
-  const screenshot = state.uploadedScreenshotUrl
-    ? await loadImage(state.uploadedScreenshotUrl)
+  const screenshotUrl = state.uploadedScreenshotUrl ?? state.uploadedMediaUrl;
+  const screenshot = screenshotUrl
+    ? await loadImage(screenshotUrl)
     : null;
 
-  drawBackground(context, preset, state);
-  drawText(context, state, layout);
-  drawPhone(context, preset, state, layout, screenshot);
+  drawEditorFrame(context, preset, state, screenshot, 0);
 
   const blob = await canvasToBlob(canvas);
   await verifyDimensions(blob, preset.width, preset.height);
   return blob;
 }
 
-function drawBackground(
+export function drawEditorFrame(
+  context: CanvasRenderingContext2D,
+  preset: CanvasPreset,
+  state: EditorState,
+  media: CanvasImageSource | null,
+  currentTime = 0,
+) {
+  const timelineState = getTimelineTextState(state, currentTime);
+  const layout = computeCanvasLayout(preset, timelineState, 1);
+
+  drawBackground(context, preset, timelineState);
+  drawText(context, timelineState, layout);
+  drawPhone(context, preset, timelineState, layout, media);
+}
+
+export function drawBackground(
   context: CanvasRenderingContext2D,
   preset: CanvasPreset,
   state: Pick<
@@ -118,7 +132,7 @@ function drawBackground(
   context.restore();
 }
 
-function drawText(
+export function drawText(
   context: CanvasRenderingContext2D,
   state: EditorState,
   layout: ReturnType<typeof computeCanvasLayout>,
@@ -172,12 +186,12 @@ function drawText(
   context.restore();
 }
 
-function drawPhone(
+export function drawPhone(
   context: CanvasRenderingContext2D,
   preset: CanvasPreset,
   state: EditorState,
   layout: ReturnType<typeof computeCanvasLayout>,
-  screenshot: HTMLImageElement | null,
+  screenshot: CanvasImageSource | null,
 ) {
   const isTablet = preset.device === "tablet";
   const bodyRadius = (isTablet ? 72 : 96) * state.phoneCornerScale;
@@ -286,7 +300,7 @@ function drawPlaceholderScreen(
   context.fillRect(x, y, width, height);
 }
 
-function drawCoverImage(
+export function drawCoverImage(
   context: CanvasRenderingContext2D,
   image: CanvasImageSource,
   x: number,
@@ -294,16 +308,43 @@ function drawCoverImage(
   width: number,
   height: number,
 ) {
-  const imageWidth =
-    image instanceof HTMLImageElement ? image.naturalWidth || image.width : (image as ImageBitmap).width;
-  const imageHeight =
-    image instanceof HTMLImageElement ? image.naturalHeight || image.height : (image as ImageBitmap).height;
+  const imageWidth = getCanvasSourceWidth(image);
+  const imageHeight = getCanvasSourceHeight(image);
+
+  if (!imageWidth || !imageHeight) {
+    return;
+  }
+
   const scale = Math.max(width / imageWidth, height / imageHeight);
   const drawWidth = imageWidth * scale;
   const drawHeight = imageHeight * scale;
   const offsetX = x + (width - drawWidth) / 2;
   const offsetY = y + (height - drawHeight) / 2;
   context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+}
+
+function getCanvasSourceWidth(image: CanvasImageSource) {
+  if (image instanceof HTMLImageElement) {
+    return image.naturalWidth || image.width;
+  }
+
+  if (image instanceof HTMLVideoElement) {
+    return image.videoWidth || image.width;
+  }
+
+  return (image as ImageBitmap | HTMLCanvasElement | OffscreenCanvas).width;
+}
+
+function getCanvasSourceHeight(image: CanvasImageSource) {
+  if (image instanceof HTMLImageElement) {
+    return image.naturalHeight || image.height;
+  }
+
+  if (image instanceof HTMLVideoElement) {
+    return image.videoHeight || image.height;
+  }
+
+  return (image as ImageBitmap | HTMLCanvasElement | OffscreenCanvas).height;
 }
 
 function drawRoundedRect(

@@ -1,6 +1,15 @@
 export type TextPosition = "top" | "bottom";
 export type DeviceKind = "phone" | "tablet";
 export type BackgroundMode = "solid" | "linear" | "advanced" | "radial";
+export type EditorMediaType = "image" | "video";
+
+export type TimelineTextCue = {
+  id: string;
+  startTime: number;
+  endTime: number;
+  headline: string;
+  subtitle: string;
+};
 
 export type CanvasPreset = {
   id: string;
@@ -12,7 +21,11 @@ export type CanvasPreset = {
 
 export type EditorState = {
   selectedPresetId: string;
+  mediaType: EditorMediaType;
   uploadedScreenshotUrl: string | null;
+  uploadedMediaUrl: string | null;
+  mediaName: string | null;
+  timelineTextCues: TimelineTextCue[];
   headline: string;
   subtitle: string;
   textPosition: TextPosition;

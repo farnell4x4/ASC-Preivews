@@ -22,12 +22,17 @@ import {
   savePreviewZoom,
 } from "@/lib/editorSessionStore";
 import { exportStateAsPng } from "@/lib/exportImage";
-import type { EditorState } from "@/lib/types";
+import { exportStateAsVideo } from "@/lib/exportVideo";
+import type { EditorMediaType, EditorState, TimelineTextCue } from "@/lib/types";
 import type { SavedEditorSessionSummary } from "@/lib/editorSessionStore";
 
 const initialState: EditorState = {
   selectedPresetId: defaultPreset.id,
+  mediaType: "image",
   uploadedScreenshotUrl: null,
+  uploadedMediaUrl: null,
+  mediaName: null,
+  timelineTextCues: [],
   headline: "Track what matters",
   subtitle: "Simple. Clean. Focused.",
   textPosition: "top",
@@ -86,6 +91,9 @@ export function Editor() {
   const [loadedSessionIds, setLoadedSessionIds] = useState<string[]>([]);
   const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
   const [isSavedFilesOpen, setIsSavedFilesOpen] = useState(false);
+  const [previewVideoTime, setPreviewVideoTime] = useState(0);
+  const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
+  const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
   const [fitHeight, setFitHeight] = useState(720);
@@ -111,7 +119,7 @@ export function Editor() {
       loadedSessionIds
         .filter((sessionId, index, allIds) => allIds.indexOf(sessionId) === index)
         .map((sessionId) => {
-          if (sessionId === activeSessionId && state.uploadedScreenshotUrl) {
+          if (sessionId === activeSessionId && hasLoadedMedia(state)) {
             return {
               id: sessionId,
               displayName:
@@ -159,9 +167,20 @@ export function Editor() {
     });
   };
 
+  const selectedCue = useMemo(
+    () =>
+      state.timelineTextCues.find((cue) => cue.id === selectedCueId) ??
+      state.timelineTextCues[0] ??
+      null,
+    [selectedCueId, state.timelineTextCues],
+  );
+
   const resetToDefaultDraft = () => {
     setActiveSessionId(DEFAULT_SESSION_ID);
     setState(initialState);
+    setPreviewVideoTime(0);
+    setPreviewVideoDuration(0);
+    setSelectedCueId(null);
   };
 
   useEffect(() => {
@@ -190,7 +209,7 @@ export function Editor() {
 
         if (
           nextSessionId !== DEFAULT_SESSION_ID &&
-          savedSession.state.uploadedScreenshotUrl &&
+          hasLoadedMedia(savedSession.state) &&
           !savedLoadedSessionIds.includes(nextSessionId)
         ) {
           setLoadedSessionIds([nextSessionId]);
@@ -200,6 +219,7 @@ export function Editor() {
           ...initialState,
           ...savedSession.state,
         });
+        setSelectedCueId(savedSession.state.timelineTextCues?.[0]?.id ?? null);
         setStatusMessage(
           nextSessionId === DEFAULT_SESSION_ID
             ? "Restored your last editing session."
@@ -279,6 +299,64 @@ export function Editor() {
     }));
   };
 
+  const handleVideoTimeUpdate = (currentTime: number, duration: number) => {
+    setPreviewVideoTime(currentTime);
+    setPreviewVideoDuration(Number.isFinite(duration) ? duration : 0);
+  };
+
+  const updateSelectedCue = <K extends keyof TimelineTextCue>(
+    key: K,
+    value: TimelineTextCue[K],
+  ) => {
+    if (!selectedCue) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      timelineTextCues: current.timelineTextCues
+        .map((cue) =>
+          cue.id === selectedCue.id
+            ? normalizeCue({
+                ...cue,
+                [key]: value,
+              })
+            : cue,
+        )
+        .sort((a, b) => a.startTime - b.startTime),
+    }));
+  };
+
+  const addTimelineCue = () => {
+    const duration = previewVideoDuration || 6;
+    const startTime = Math.min(Math.max(0, previewVideoTime), Math.max(0, duration - 0.5));
+    const cue = normalizeCue({
+      id: createTimelineCueId(),
+      startTime,
+      endTime: Math.min(duration, startTime + 2),
+      headline: state.headline,
+      subtitle: state.subtitle,
+    });
+
+    setState((current) => ({
+      ...current,
+      timelineTextCues: [...current.timelineTextCues, cue].sort((a, b) => a.startTime - b.startTime),
+    }));
+    setSelectedCueId(cue.id);
+  };
+
+  const deleteSelectedCue = () => {
+    if (!selectedCue) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      timelineTextCues: current.timelineTextCues.filter((cue) => cue.id !== selectedCue.id),
+    }));
+    setSelectedCueId(null);
+  };
+
   const moveLoadedSession = (
     draggedId: string,
     targetId: string,
@@ -347,6 +425,7 @@ export function Editor() {
           const sessionId = getFileSessionId(file);
           const nextUrl = await readFileAsDataUrl(file);
           const savedSession = await loadEditorSession(sessionId);
+          const mediaType: EditorMediaType = file.type.startsWith("video/") ? "video" : "image";
           const restoredState = savedSession
             ? {
                 ...initialState,
@@ -358,18 +437,29 @@ export function Editor() {
               (preset) =>
                 preset.id === (restoredState?.selectedPresetId ?? baseState.selectedPresetId),
             ) ?? defaultPreset;
+          const mediaDimensions =
+            mediaType === "video"
+              ? await readVideoDimensions(nextUrl)
+              : await readImageDimensions(nextUrl);
           const nextState = restoredState
             ? {
                 ...restoredState,
-                uploadedScreenshotUrl: nextUrl,
+                mediaType,
+                uploadedScreenshotUrl: mediaType === "image" ? nextUrl : null,
+                uploadedMediaUrl: nextUrl,
+                mediaName: file.name,
               }
             : {
                 ...baseState,
-                uploadedScreenshotUrl: nextUrl,
+                mediaType,
+                uploadedScreenshotUrl: mediaType === "image" ? nextUrl : null,
+                uploadedMediaUrl: nextUrl,
+                mediaName: file.name,
+                timelineTextCues: mediaType === "video" ? [] : baseState.timelineTextCues,
                 ...getAutoFitPhoneLayout(
                   baseState,
                   presetForFile,
-                  await readImageDimensions(nextUrl),
+                  mediaDimensions,
                 ),
               };
 
@@ -396,6 +486,9 @@ export function Editor() {
       });
       setActiveSessionId(nextActiveFile.sessionId);
       setState(nextActiveFile.state);
+      setSelectedCueId(nextActiveFile.state.timelineTextCues[0]?.id ?? null);
+      setPreviewVideoTime(0);
+      setPreviewVideoDuration(0);
       await refreshSavedSessions();
       setStatusMessage(
         files.length === 1
@@ -403,7 +496,7 @@ export function Editor() {
           : `Loaded ${files.length} files into the preview strip.`,
       );
     } catch {
-      setStatusMessage("Unable to read that image file.");
+      setStatusMessage("Unable to read that media file.");
     } finally {
       setIsSessionReady(true);
     }
@@ -413,6 +506,10 @@ export function Editor() {
     try {
       setIsSessionReady(false);
       await activateSession(sessionId);
+      const savedSession = await loadEditorSession(sessionId);
+      setSelectedCueId(savedSession?.state.timelineTextCues?.[0]?.id ?? null);
+      setPreviewVideoTime(0);
+      setPreviewVideoDuration(0);
       setLoadedSessionIds((current) =>
         current.includes(sessionId) ? current : [sessionId, ...current],
       );
@@ -427,15 +524,28 @@ export function Editor() {
 
   const handleExport = async () => {
     setIsExporting(true);
-    setStatusMessage("Rendering your PNG...");
+    setStatusMessage(state.mediaType === "video" ? "Rendering your video..." : "Rendering your PNG...");
 
     try {
-      const blob = await exportStateAsPng(selectedPreset, state);
-      downloadBlob(
-        blob,
-        `asc-screenshot-${selectedPreset.width}x${selectedPreset.height}.png`,
-      );
-      setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} PNG.`);
+      if (state.mediaType === "video") {
+        const { blob, extension, isAppleCompatible, label } = await exportStateAsVideo(selectedPreset, state);
+        downloadBlob(
+          blob,
+          `asc-preview-${selectedPreset.width}x${selectedPreset.height}.${extension}`,
+        );
+        setStatusMessage(
+          isAppleCompatible
+            ? `Exported ${selectedPreset.width}x${selectedPreset.height} ${label} for QuickTime and Photos.`
+            : `Exported ${label}; this browser cannot encode Apple-compatible MP4 locally.`,
+        );
+      } else {
+        const blob = await exportStateAsPng(selectedPreset, state);
+        downloadBlob(
+          blob,
+          `asc-screenshot-${selectedPreset.width}x${selectedPreset.height}.png`,
+        );
+        setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} PNG.`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to export PNG.";
       setStatusMessage(message);
@@ -451,20 +561,28 @@ export function Editor() {
     }
 
     setIsExporting(true);
-    setStatusMessage(`Rendering ${loadedPreviewItems.length} PNGs...`);
+    setStatusMessage(`Rendering ${loadedPreviewItems.length} loaded exports...`);
 
     try {
       for (const item of loadedPreviewItems) {
         const itemPreset =
           canvasPresets.find((preset) => preset.id === item.state.selectedPresetId) ?? defaultPreset;
-        const blob = await exportStateAsPng(itemPreset, item.state);
-        downloadBlob(
-          blob,
-          `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.png`,
-        );
+        if (item.state.mediaType === "video") {
+          const { blob, extension } = await exportStateAsVideo(itemPreset, item.state);
+          downloadBlob(
+            blob,
+            `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.${extension}`,
+          );
+        } else {
+          const blob = await exportStateAsPng(itemPreset, item.state);
+          downloadBlob(
+            blob,
+            `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.png`,
+          );
+        }
       }
 
-      setStatusMessage(`Exported ${loadedPreviewItems.length} loaded PNGs.`);
+      setStatusMessage(`Exported ${loadedPreviewItems.length} loaded files.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to export all PNGs.";
       setStatusMessage(message);
@@ -588,12 +706,14 @@ export function Editor() {
                       >
                         <div className="h-full max-h-[220px] w-[66%]">
                           <PhoneMockup
-                            screenshotUrl={session.previewUrl}
+                            screenshotUrl={session.mediaType === "image" ? session.previewUrl : null}
+                            videoUrl={session.mediaType === "video" ? session.previewUrl : null}
                             device={
                               (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
                                 defaultPreset).device
                             }
                             cornerScale={session.state.phoneCornerScale}
+                            showVideoControls={false}
                           />
                         </div>
                       </div>
@@ -637,7 +757,11 @@ export function Editor() {
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  <ExportButton isExporting={isExporting} onExport={handleExport} />
+                  <ExportButton
+                    isExporting={isExporting}
+                    onExport={handleExport}
+                    label={state.mediaType === "video" ? "Export Video" : "Export PNG"}
+                  />
                   {loadedPreviewItems.length > 0 ? (
                     <ExportButton
                       isExporting={isExporting}
@@ -765,7 +889,7 @@ export function Editor() {
                   </div>
                   <input
                     type="file"
-                    accept="image/png,image/jpeg,image/jpg"
+                    accept="image/png,image/jpeg,image/jpg,video/mp4,video/webm,video/quicktime,video/*"
                     multiple
                     onChange={(event) => {
                       void handleUpload(event.target.files);
@@ -774,10 +898,166 @@ export function Editor() {
                     className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
                   />
                   <div className="mt-2 text-sm text-slate-500">
-                    Add one file or a batch. Each file keeps its own saved layout.
+                    Add screenshots or videos. Each file keeps its own saved layout locally.
                   </div>
                 </label>
               </div>
+
+              {state.mediaType === "video" ? (
+                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Timeline
+                      </div>
+                      <div className="mt-1 text-sm text-slate-500">
+                        {formatSeconds(previewVideoTime)} / {formatSeconds(previewVideoDuration)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addTimelineCue}
+                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                    >
+                      Add cue
+                    </button>
+                  </div>
+
+                  {state.timelineTextCues.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Default headline
+                          </div>
+                          <input
+                            type="text"
+                            value={state.headline}
+                            onChange={(event) => handleStateChange("headline", event.target.value)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                          />
+                        </label>
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Default subtitle
+                          </div>
+                          <input
+                            type="text"
+                            value={state.subtitle}
+                            onChange={(event) => handleStateChange("subtitle", event.target.value)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {state.timelineTextCues.map((cue) => (
+                          <button
+                            key={cue.id}
+                            type="button"
+                            onClick={() => setSelectedCueId(cue.id)}
+                            className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                              selectedCue?.id === cue.id
+                                ? "bg-slate-900 text-white"
+                                : "bg-white text-slate-600 hover:bg-slate-100"
+                            }`}
+                          >
+                            {formatSeconds(cue.startTime)}-{formatSeconds(cue.endTime)}
+                          </button>
+                        ))}
+                      </div>
+
+                      {selectedCue ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <label className="block">
+                            <div className="mb-2 text-sm font-medium text-slate-700">
+                              Start: {formatSeconds(selectedCue.startTime)}
+                            </div>
+                            <input
+                              type="number"
+                              min={0}
+                              max={Math.max(previewVideoDuration, selectedCue.endTime)}
+                              step={0.1}
+                              value={selectedCue.startTime}
+                              onChange={(event) => updateSelectedCue("startTime", Number(event.target.value))}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-2 text-sm font-medium text-slate-700">
+                              End: {formatSeconds(selectedCue.endTime)}
+                            </div>
+                            <input
+                              type="number"
+                              min={0.1}
+                              max={Math.max(previewVideoDuration, selectedCue.endTime)}
+                              step={0.1}
+                              value={selectedCue.endTime}
+                              onChange={(event) => updateSelectedCue("endTime", Number(event.target.value))}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block md:col-span-2">
+                            <div className="mb-2 text-sm font-medium text-slate-700">Headline</div>
+                            <input
+                              type="text"
+                              value={selectedCue.headline}
+                              onChange={(event) => updateSelectedCue("headline", event.target.value)}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block md:col-span-2">
+                            <div className="mb-2 text-sm font-medium text-slate-700">Subtitle</div>
+                            <input
+                              type="text"
+                              value={selectedCue.subtitle}
+                              onChange={(event) => updateSelectedCue("subtitle", event.target.value)}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={deleteSelectedCue}
+                            className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 transition hover:border-red-200"
+                          >
+                            Delete cue
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Default headline
+                          </div>
+                          <input
+                            type="text"
+                            value={state.headline}
+                            onChange={(event) => handleStateChange("headline", event.target.value)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                          />
+                        </label>
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Default subtitle
+                          </div>
+                          <input
+                            type="text"
+                            value={state.subtitle}
+                            onChange={(event) => handleStateChange("subtitle", event.target.value)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                          />
+                        </label>
+                      </div>
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
+                        Play or scrub the video, then add a cue where the text should change.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             <div
@@ -856,6 +1136,10 @@ export function Editor() {
                             state={item.state}
                             renderScale={itemScale}
                             interactive={item.id === activeSessionId}
+                            currentTime={item.id === activeSessionId ? previewVideoTime : 0}
+                            onVideoTimeUpdate={
+                              item.id === activeSessionId ? handleVideoTimeUpdate : undefined
+                            }
                             onStateChange={item.id === activeSessionId ? handleStateChange : undefined}
                           />
                         </div>
@@ -875,6 +1159,8 @@ export function Editor() {
                       state={state}
                       renderScale={previewScale}
                       interactive
+                      currentTime={previewVideoTime}
+                      onVideoTimeUpdate={handleVideoTimeUpdate}
                       onStateChange={handleStateChange}
                     />
                   </div>
@@ -1075,6 +1361,26 @@ function readImageDimensions(src: string) {
   });
 }
 
+function readVideoDimensions(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const video = document.createElement("video");
+
+    video.onloadedmetadata = () => {
+      resolve({
+        width: video.videoWidth,
+        height: video.videoHeight,
+      });
+    };
+
+    video.onerror = () => {
+      reject(new Error("Unable to read video dimensions."));
+    };
+
+    video.preload = "metadata";
+    video.src = src;
+  });
+}
+
 function getAutoFitPhoneLayout(
   state: EditorState,
   preset: { width: number; height: number; device: "phone" | "tablet" },
@@ -1121,6 +1427,44 @@ function getAutoFitPhoneLayout(
     phoneY: clamp(phoneY, 18, 82),
     phoneRotation: 0,
   };
+}
+
+function hasLoadedMedia(state: EditorState) {
+  return Boolean(state.uploadedMediaUrl ?? state.uploadedScreenshotUrl);
+}
+
+function normalizeCue(cue: TimelineTextCue) {
+  const startTime = Math.max(0, Number.isFinite(cue.startTime) ? cue.startTime : 0);
+  const endTime = Math.max(
+    startTime + 0.1,
+    Number.isFinite(cue.endTime) ? cue.endTime : startTime + 2,
+  );
+
+  return {
+    ...cue,
+    startTime: roundToTenths(startTime),
+    endTime: roundToTenths(endTime),
+  };
+}
+
+function createTimelineCueId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `cue:${crypto.randomUUID()}`;
+  }
+
+  return `cue:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function formatSeconds(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0.0s";
+  }
+
+  return `${roundToTenths(value).toFixed(1)}s`;
+}
+
+function roundToTenths(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -1175,5 +1519,12 @@ function getDisplayNameFromSessionId(sessionId: string) {
     return withoutTimestamp || "Saved file";
   }
 
-  return withoutTimestamp.slice(0, nameSeparator) || "Saved file";
+  const withoutSize = withoutTimestamp.slice(0, nameSeparator);
+  const typeSeparator = withoutSize.indexOf(":");
+
+  if (typeSeparator !== -1 && withoutSize.slice(0, typeSeparator).includes("/")) {
+    return withoutSize.slice(typeSeparator + 1) || "Saved file";
+  }
+
+  return withoutSize || "Saved file";
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { PhoneMockup } from "@/components/PhoneMockup";
 import { getBackgroundStyle } from "@/lib/backgroundStyle";
 import { computeCanvasLayout } from "@/lib/canvasLayout";
+import { getTimelineTextState } from "@/lib/timelineText";
 import type { CanvasPreset, EditorState } from "@/lib/types";
 
 const EXPORT_FONT_FAMILY =
@@ -12,6 +13,8 @@ type ScreenshotCanvasProps = {
   state: EditorState;
   renderScale?: number;
   interactive?: boolean;
+  currentTime?: number;
+  onVideoTimeUpdate?: (currentTime: number, duration: number) => void;
   onStateChange?: <K extends keyof EditorState>(key: K, value: EditorState[K]) => void;
 };
 
@@ -20,6 +23,8 @@ export function ScreenshotCanvas({
   state,
   renderScale = 1,
   interactive = false,
+  currentTime = 0,
+  onVideoTimeUpdate,
   onStateChange,
 }: ScreenshotCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -52,7 +57,8 @@ export function ScreenshotCanvas({
     startWidthPx: number;
     startHeightPx: number;
   } | null>(null);
-  const isTop = state.textPosition === "top";
+  const timelineState = getTimelineTextState(state, currentTime);
+  const isTop = timelineState.textPosition === "top";
   const scalePx = (value: number) => value * renderScale;
   const {
     canvasWidthPx,
@@ -72,13 +78,13 @@ export function ScreenshotCanvas({
     phoneHeightPx,
     phoneCenterXPx,
     phoneCenterYPx,
-  } = computeCanvasLayout(preset, state, renderScale);
-  const backgroundStyle = getBackgroundStyle(state);
+  } = computeCanvasLayout(preset, timelineState, renderScale);
+  const backgroundStyle = getBackgroundStyle(timelineState);
 
   useEffect(() => {
     autoSizeTextArea(headlineInputRef.current);
     autoSizeTextArea(subtitleInputRef.current);
-  }, [state.headline, state.subtitle, titleSize, subtitleSize, gapSize, interactive]);
+  }, [timelineState.headline, timelineState.subtitle, titleSize, subtitleSize, gapSize, interactive]);
 
   const beginDrag = (
     event: import("react").PointerEvent<HTMLDivElement>,
@@ -94,14 +100,14 @@ export function ScreenshotCanvas({
       mode,
       startX: event.clientX,
       startY: event.clientY,
-      originPhoneScale: state.phoneScale,
-      originPhoneX: state.phoneX,
-      originPhoneY: state.phoneY,
-      originPhoneWidthScale: state.phoneWidthScale,
-      originPhoneHeightScale: state.phoneHeightScale,
-      originPhoneCornerScale: state.phoneCornerScale,
+      originPhoneScale: timelineState.phoneScale,
+      originPhoneX: timelineState.phoneX,
+      originPhoneY: timelineState.phoneY,
+      originPhoneWidthScale: timelineState.phoneWidthScale,
+      originPhoneHeightScale: timelineState.phoneHeightScale,
+      originPhoneCornerScale: timelineState.phoneCornerScale,
       axisSign,
-      rotationDegrees: state.phoneRotation,
+      rotationDegrees: timelineState.phoneRotation,
       baseWidthPx: basePhoneWidthPx,
       baseHeightPx: basePhoneHeightPx,
       startWidthPx: phoneWidthPx,
@@ -157,9 +163,9 @@ export function ScreenshotCanvas({
       mode: "move",
       startX: event.clientX,
       startY: event.clientY,
-      originTextBoxX: state.textBoxX,
-      originTextBoxY: state.textBoxY,
-      originTextBoxWidth: state.textBoxWidth,
+      originTextBoxX: timelineState.textBoxX,
+      originTextBoxY: timelineState.textBoxY,
+      originTextBoxWidth: timelineState.textBoxWidth,
     };
 
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -176,9 +182,9 @@ export function ScreenshotCanvas({
       mode: "width",
       startX: event.clientX,
       startY: event.clientY,
-      originTextBoxX: state.textBoxX,
-      originTextBoxY: state.textBoxY,
-      originTextBoxWidth: state.textBoxWidth,
+      originTextBoxX: timelineState.textBoxX,
+      originTextBoxY: timelineState.textBoxY,
+      originTextBoxWidth: timelineState.textBoxWidth,
     };
 
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -303,46 +309,46 @@ export function ScreenshotCanvas({
         <div className="relative">
           <textarea
             ref={headlineInputRef}
-            value={state.headline}
+            value={timelineState.headline}
             onChange={(event) => onStateChange?.("headline", event.target.value)}
             onInput={(event) => autoSizeTextArea(event.currentTarget)}
             rows={1}
-            readOnly={!interactive}
+            readOnly={!interactive || state.mediaType === "video"}
             className="block w-full resize-none overflow-hidden bg-transparent outline-none"
             style={{
               fontSize: titleSize,
               lineHeight: `${titleLineHeight}px`,
               letterSpacing: "-0.04em",
               fontFamily: EXPORT_FONT_FAMILY,
-              color: state.textColor,
+              color: timelineState.textColor,
               margin: 0,
               fontWeight: 700,
               width: "100%",
               padding: 0,
               border: "none",
-              pointerEvents: interactive ? "auto" : "none",
+              pointerEvents: interactive && state.mediaType !== "video" ? "auto" : "none",
             }}
           />
           <textarea
             ref={subtitleInputRef}
-            value={state.subtitle}
+            value={timelineState.subtitle}
             onChange={(event) => onStateChange?.("subtitle", event.target.value)}
             onInput={(event) => autoSizeTextArea(event.currentTarget)}
             rows={1}
-            readOnly={!interactive}
+            readOnly={!interactive || state.mediaType === "video"}
             className="block w-full resize-none overflow-hidden bg-transparent outline-none"
             style={{
               fontSize: subtitleSize,
               lineHeight: 1.2,
               fontFamily: EXPORT_FONT_FAMILY,
-              color: state.textColor,
+              color: timelineState.textColor,
               opacity: 0.84,
               margin: 0,
               marginTop: gapSize,
               width: "100%",
               padding: 0,
               border: "none",
-              pointerEvents: interactive ? "auto" : "none",
+              pointerEvents: interactive && state.mediaType !== "video" ? "auto" : "none",
             }}
           />
 
@@ -386,16 +392,19 @@ export function ScreenshotCanvas({
             onLostPointerCapture={handlePointerEnd}
             className={interactive ? "group pointer-events-auto relative h-full w-full touch-none cursor-grab active:cursor-grabbing" : "relative h-full w-full"}
             style={{
-              transform: `rotate(${state.phoneRotation}deg)`,
+              transform: `rotate(${timelineState.phoneRotation}deg)`,
               transformOrigin: "center center",
             }}
           >
             <PhoneMockup
-              screenshotUrl={state.uploadedScreenshotUrl}
+              screenshotUrl={timelineState.uploadedScreenshotUrl}
+              videoUrl={timelineState.mediaType === "video" ? timelineState.uploadedMediaUrl : null}
               device={preset.device}
               renderScale={renderScale}
-              cornerScale={state.phoneCornerScale}
+              cornerScale={timelineState.phoneCornerScale}
               frameWidthPx={phoneWidthPx}
+              showVideoControls={interactive}
+              onVideoTimeUpdate={onVideoTimeUpdate}
             />
 
             {interactive ? (
