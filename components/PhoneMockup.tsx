@@ -44,7 +44,8 @@ export function PhoneMockup({
     }
 
     syncPreviewFrame(video, previewFrameTime);
-  }, [previewFrameTime, videoUrl]);
+    onVideoTimeUpdate?.(video.currentTime, video.duration);
+  }, [onVideoTimeUpdate, previewFrameTime, videoUrl]);
 
   return (
     <div className="relative h-full w-full">
@@ -122,6 +123,10 @@ export function PhoneMockup({
               onLoadedData={(event) => {
                 const video = event.currentTarget;
                 syncPreviewFrame(video, desiredFrameTimeRef.current);
+              }}
+              onTimeUpdate={(event) => {
+                const video = event.currentTarget;
+                onVideoTimeUpdate?.(video.currentTime, video.duration);
               }}
               onSeeked={(event) => {
                 const video = event.currentTarget;

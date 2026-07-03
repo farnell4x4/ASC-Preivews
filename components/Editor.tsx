@@ -82,6 +82,8 @@ UI naming glossary:
 - Background sheet: the modal used for background options.
 */
 export function Editor() {
+  type ControlPanel = "files" | "text" | "preview" | "timeline";
+
   const [state, setState] = useState<EditorState>(initialState);
   const [isExporting, setIsExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
@@ -92,7 +94,7 @@ export function Editor() {
   const [savedSessions, setSavedSessions] = useState<SavedEditorSessionSummary[]>([]);
   const [loadedSessionIds, setLoadedSessionIds] = useState<string[]>([]);
   const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
-  const [isSavedFilesOpen, setIsSavedFilesOpen] = useState(false);
+  const [activeControlPanel, setActiveControlPanel] = useState<ControlPanel>("files");
   const [previewVideoTime, setPreviewVideoTime] = useState(0);
   const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
@@ -265,6 +267,37 @@ export function Editor() {
   }, [activeSessionId, isSessionReady, loadedSessionIds, previewZoom, state]);
 
   useEffect(() => {
+    if (state.mediaType !== "video" && activeControlPanel === "timeline") {
+      setActiveControlPanel("files");
+    }
+  }, [activeControlPanel, state.mediaType]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (state.mediaType !== "video" || !state.uploadedMediaUrl) {
+      setPreviewVideoDuration(0);
+      return;
+    }
+
+    void readVideoDimensions(state.uploadedMediaUrl)
+      .then(({ duration }) => {
+        if (!isCancelled) {
+          setPreviewVideoDuration(Number.isFinite(duration) && duration > 0 ? duration : 0);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setPreviewVideoDuration(0);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [state.mediaType, state.uploadedMediaUrl]);
+
+  useEffect(() => {
     const node = previewViewportRef.current;
 
     if (!node) {
@@ -303,7 +336,9 @@ export function Editor() {
 
   const handleVideoTimeUpdate = (currentTime: number, duration: number) => {
     setPreviewVideoTime(currentTime);
-    setPreviewVideoDuration(Number.isFinite(duration) ? duration : 0);
+    if (Number.isFinite(duration) && duration > 0) {
+      setPreviewVideoDuration(duration);
+    }
   };
 
   const handleSelectCue = (cue: TimelineTextCue) => {
@@ -535,7 +570,6 @@ export function Editor() {
       setLoadedSessionIds((current) =>
         current.includes(sessionId) ? current : [sessionId, ...current],
       );
-      setIsSavedFilesOpen(false);
       setStatusMessage("Restored the saved settings for that file.");
     } catch {
       setStatusMessage("Unable to load that saved file.");
@@ -667,324 +701,382 @@ export function Editor() {
           </div>
         </header>
 
-        {savedSessions.length > 0 ? (
-          <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Saved Files
-                </div>
-                <div className="mt-1 text-sm text-slate-500">
-                  Jump back into any saved screenshot setup from IndexedDB.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSavedFilesOpen((current) => !current)}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
-              >
-                {isSavedFilesOpen ? "Collapse" : `Show ${savedSessions.length}`}
-              </button>
-            </div>
-
-            {isSavedFilesOpen ? (
-              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                {savedSessions.map((session) => (
-                  <div
-                    key={session.id}
-                    onClick={() => void handleSelectSavedSession(session.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        void handleSelectSavedSession(session.id);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    className={`group w-[136px] shrink-0 rounded-[1.4rem] border bg-white p-2 text-left transition ${
-                      activeSessionId === session.id
-                        ? "border-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.14)]"
-                        : "border-slate-200 hover:border-slate-300 hover:shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
-                    }`}
-                  >
-                    <div className="relative aspect-[9/19.5] overflow-hidden rounded-[1rem] bg-slate-100">
-                      <button
-                        type="button"
-                        aria-label={`Delete ${session.displayName}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleDeleteSavedSession(session.id);
-                        }}
-                        className="absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                          <path d="M6 12h12" />
-                        </svg>
-                      </button>
-
-                      <div
-                        className="flex h-full w-full items-center justify-center p-2 transition group-hover:scale-[1.02]"
-                        style={getBackgroundStyle(session.state)}
-                      >
-                        <div className="h-full max-h-[220px] w-[66%]">
-                          <PhoneMockup
-                            screenshotUrl={session.mediaType === "image" ? session.previewUrl : null}
-                            videoUrl={session.mediaType === "video" ? session.previewUrl : null}
-                            device={
-                              (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
-                                defaultPreset).device
-                            }
-                            cornerScale={session.state.phoneCornerScale}
-                            showVideoControls={false}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-3 truncate text-sm font-semibold text-slate-800">
-                      {session.displayName}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
         <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
           <div className="space-y-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(420px,1.35fr)_minmax(280px,0.95fr)] xl:items-start">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Preview
-                </div>
-                <div className="mt-1 text-sm text-slate-500">
-                  Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
-                </div>
-
-                <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
-                  {[1.5, 1, 0.75, 0.5].map((zoom) => (
-                    <button
-                      key={zoom}
-                      type="button"
-                      onClick={() => setPreviewZoom(zoom)}
-                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                        previewZoom === zoom
-                          ? "bg-slate-900 text-white"
-                          : "text-slate-600 hover:bg-slate-100"
-                      }`}
-                    >
-                      {Math.round(zoom * 100)}%
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <ExportButton
-                    isExporting={isExporting}
-                    onExport={handleExport}
-                    label={state.mediaType === "video" ? "Export Video" : "Export PNG"}
-                  />
-                  {loadedPreviewItems.length > 0 ? (
-                    <ExportButton
-                      isExporting={isExporting}
-                      onExport={handleExportAll}
-                      label={`Export All Loaded (${loadedPreviewItems.length})`}
-                    />
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-                <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Text & Color
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-slate-700">
-                      Font size: {state.fontSize}px
-                    </div>
-                    <input
-                      type="range"
-                      min={92}
-                      max={192}
-                      step={2}
-                      value={state.fontSize}
-                      onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
-                      className="w-full"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-slate-700">
-                      Title line spacing: {state.titleLineHeight.toFixed(2)}x
-                    </div>
-                    <input
-                      type="range"
-                      min={0.9}
-                      max={1.4}
-                      step={0.01}
-                      value={state.titleLineHeight}
-                      onChange={(event) => handleStateChange("titleLineHeight", Number(event.target.value))}
-                      className="w-full"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-slate-700">
-                      Text spacing: {state.textSpacing}px
-                    </div>
-                    <input
-                      type="range"
-                      min={18}
-                      max={72}
-                      step={2}
-                      value={state.textSpacing}
-                      onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
-                      className="w-full"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-slate-700">
-                      Text color
-                    </div>
-                    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                      <input
-                        type="color"
-                        value={state.textColor}
-                        onChange={(event) => handleStateChange("textColor", event.target.value)}
-                        className="h-11 w-11 cursor-pointer rounded-full"
-                      />
-                      <span className="text-sm text-slate-600">{state.textColor}</span>
-                    </div>
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-slate-700">
-                      Background color
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsBackgroundSheetOpen(true)}
-                      className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300"
-                    >
-                      <span
-                        className="h-11 w-11 rounded-full border border-slate-200 shadow-inner"
-                        style={backgroundButtonStyle}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-slate-700">
-                          {getBackgroundModeLabel(state.backgroundMode)}
-                        </span>
-                        <span className="block truncate text-sm text-slate-500">
-                          {state.backgroundMode === "solid"
-                            ? state.backgroundColor
-                            : `${state.backgroundColor} -> ${state.backgroundAccentColor}`}
-                        </span>
-                      </span>
-                    </button>
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block">
-                  <div className="mb-2 text-sm font-medium text-slate-700">
-                    ASC preset
-                  </div>
-                  <select
-                    value={state.selectedPresetId}
-                    onChange={(event) => handleStateChange("selectedPresetId", event.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none ring-0 transition focus:border-blue-400"
+            <div className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.96))] p-3 shadow-[0_16px_50px_rgba(15,23,42,0.08)]">
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { id: "files", label: "Files", meta: `${savedSessions.length} saved` },
+                  { id: "text", label: "Text", meta: "Typography and color" },
+                  { id: "preview", label: "Preview", meta: `${selectedPreset.width}x${selectedPreset.height}` },
+                  ...(state.mediaType === "video"
+                    ? [{ id: "timeline", label: "Timeline", meta: `${state.timelineTextCues.length} cues` }]
+                    : []),
+                ].map((panel) => (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    onClick={() => setActiveControlPanel(panel.id as ControlPanel)}
+                    className={`rounded-full border px-4 py-2.5 text-left text-sm transition ${
+                      activeControlPanel === panel.id
+                        ? "border-slate-900 bg-slate-900 text-white shadow-[0_10px_24px_rgba(15,23,42,0.16)]"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                    }`}
                   >
-                    {canvasPresets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.label} ({preset.width}x{preset.height})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <div className="mb-2 text-sm font-medium text-slate-700">
-                    Choose file
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,video/mp4,video/webm,video/quicktime,video/*"
-                    multiple
-                    onChange={(event) => {
-                      void handleUpload(event.target.files);
-                      event.currentTarget.value = "";
-                    }}
-                    className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
-                  />
-                  <div className="mt-2 text-sm text-slate-500">
-                    Add screenshots or videos. Each file keeps its own saved layout locally.
-                  </div>
-                </label>
+                    <span className="block font-semibold">{panel.label}</span>
+                    <span className={`block text-xs ${activeControlPanel === panel.id ? "text-slate-300" : "text-slate-500"}`}>
+                      {panel.meta}
+                    </span>
+                  </button>
+                ))}
               </div>
 
-              {state.mediaType === "video" ? (
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
+              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                {activeControlPanel === "files" ? (
+                  <>
+                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
                       <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Timeline
+                        Source
+                      </div>
+                      <label className="mt-3 block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Choose file
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,video/mp4,video/webm,video/quicktime,video/*"
+                          multiple
+                          onChange={(event) => {
+                            void handleUpload(event.target.files);
+                            event.currentTarget.value = "";
+                          }}
+                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+                        />
+                        <div className="mt-2 text-sm text-slate-500">
+                          Add screenshots or videos. Each file keeps its own saved layout locally.
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Preset
+                      </div>
+                      <label className="mt-3 block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          ASC preset
+                        </div>
+                        <select
+                          value={state.selectedPresetId}
+                          onChange={(event) => handleStateChange("selectedPresetId", event.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none ring-0 transition focus:border-blue-400"
+                        >
+                          {canvasPresets.map((preset) => (
+                            <option key={preset.id} value={preset.id}>
+                              {preset.label} ({preset.width}x{preset.height})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    {savedSessions.length > 0 ? (
+                      savedSessions.map((session) => (
+                        <div
+                          key={session.id}
+                          onClick={() => void handleSelectSavedSession(session.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              void handleSelectSavedSession(session.id);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          className={`group w-[112px] shrink-0 rounded-[1.2rem] border bg-white p-2 text-left transition ${
+                            activeSessionId === session.id
+                              ? "border-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.14)]"
+                              : "border-slate-200 hover:border-slate-300 hover:shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+                          }`}
+                        >
+                          <div className="relative aspect-[9/19.5] overflow-hidden rounded-[0.9rem] bg-slate-100">
+                            <button
+                              type="button"
+                              aria-label={`Delete ${session.displayName}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDeleteSavedSession(session.id);
+                              }}
+                              className="absolute right-1.5 top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                                <path d="M6 12h12" />
+                              </svg>
+                            </button>
+
+                            <div
+                              className="flex h-full w-full items-center justify-center p-2 transition group-hover:scale-[1.02]"
+                              style={getBackgroundStyle(session.state)}
+                            >
+                              <div className="h-full max-h-[160px] w-[64%]">
+                                <PhoneMockup
+                                  screenshotUrl={session.mediaType === "image" ? session.previewUrl : null}
+                                  videoUrl={session.mediaType === "video" ? session.previewUrl : null}
+                                  device={
+                                    (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
+                                      defaultPreset).device
+                                  }
+                                  cornerScale={session.state.phoneCornerScale}
+                                  showVideoControls={false}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-2 truncate text-xs font-semibold text-slate-800">
+                            {session.displayName}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="min-w-[300px] rounded-[1.5rem] border border-dashed border-slate-300 bg-white px-5 py-6 text-sm text-slate-500">
+                        Saved files will appear here after you load media into the editor.
+                      </div>
+                    )}
+                  </>
+                ) : null}
+
+                {activeControlPanel === "text" ? (
+                  <>
+                    <div className="min-w-[240px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Type
+                      </div>
+                      <label className="block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Font size: {state.fontSize}px
+                        </div>
+                        <input
+                          type="range"
+                          min={92}
+                          max={192}
+                          step={2}
+                          value={state.fontSize}
+                          onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="min-w-[240px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Spacing
+                      </div>
+                      <div className="space-y-4">
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Title line spacing: {state.titleLineHeight.toFixed(2)}x
+                          </div>
+                          <input
+                            type="range"
+                            min={0.9}
+                            max={1.4}
+                            step={0.01}
+                            value={state.titleLineHeight}
+                            onChange={(event) => handleStateChange("titleLineHeight", Number(event.target.value))}
+                            className="w-full"
+                          />
+                        </label>
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Text spacing: {state.textSpacing}px
+                          </div>
+                          <input
+                            type="range"
+                            min={18}
+                            max={72}
+                            step={2}
+                            value={state.textSpacing}
+                            onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
+                            className="w-full"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="min-w-[240px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Color
+                      </div>
+                      <div className="space-y-4">
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Text color
+                          </div>
+                          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                            <input
+                              type="color"
+                              value={state.textColor}
+                              onChange={(event) => handleStateChange("textColor", event.target.value)}
+                              className="h-11 w-11 cursor-pointer rounded-full"
+                            />
+                            <span className="text-sm text-slate-600">{state.textColor}</span>
+                          </div>
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Background color
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsBackgroundSheetOpen(true)}
+                            className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-slate-300"
+                          >
+                            <span
+                              className="h-11 w-11 rounded-full border border-slate-200 shadow-inner"
+                              style={backgroundButtonStyle}
+                            />
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-slate-700">
+                                {getBackgroundModeLabel(state.backgroundMode)}
+                              </span>
+                              <span className="block truncate text-sm text-slate-500">
+                                {state.backgroundMode === "solid"
+                                  ? state.backgroundColor
+                                  : `${state.backgroundColor} -> ${state.backgroundAccentColor}`}
+                              </span>
+                            </span>
+                          </button>
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {activeControlPanel === "preview" ? (
+                  <>
+                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Preview
                       </div>
                       <div className="mt-1 text-sm text-slate-500">
-                        {formatSeconds(previewVideoTime)} / {formatSeconds(previewVideoDuration)}
+                        Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
                       </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addTimelineCue}
-                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
-                    >
-                      Add cue
-                    </button>
-                  </div>
-
-                  <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-slate-700">Preview frame</span>
-                      <span className="text-slate-500">{formatSeconds(previewVideoTime)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={Math.max(previewVideoDuration, 0)}
-                      step={0.1}
-                      value={Math.min(previewVideoTime, Math.max(previewVideoDuration, 0))}
-                      onChange={(event) => handlePreviewFrameChange(Number(event.target.value))}
-                      disabled={previewVideoDuration <= 0}
-                      className="w-full"
-                    />
-                    <div className="mt-2 text-sm text-slate-500">
-                      Scrub to the frame you want to line up, then place or edit cues.
-                    </div>
-                  </div>
-
-                  {state.timelineTextCues.length > 0 ? (
-                    <div className="space-y-4">
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        {state.timelineTextCues.map((cue) => (
+                      <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1 shadow-sm">
+                        {[1.5, 1, 0.75, 0.5].map((zoom) => (
                           <button
-                            key={cue.id}
+                            key={zoom}
                             type="button"
-                            onClick={() => handleSelectCue(cue)}
-                            className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                              selectedCue?.id === cue.id
+                            onClick={() => setPreviewZoom(zoom)}
+                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                              previewZoom === zoom
                                 ? "bg-slate-900 text-white"
-                                : "bg-white text-slate-600 hover:bg-slate-100"
+                                : "text-slate-600 hover:bg-white"
                             }`}
                           >
-                            {formatSeconds(cue.startTime)}-{formatSeconds(cue.endTime)}
+                            {Math.round(zoom * 100)}%
                           </button>
                         ))}
                       </div>
+                    </div>
 
-                      {selectedCue ? (
+                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Export
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        <ExportButton
+                          isExporting={isExporting}
+                          onExport={handleExport}
+                          label={state.mediaType === "video" ? "Export Video" : "Export PNG"}
+                        />
+                        {loadedPreviewItems.length > 0 ? (
+                          <ExportButton
+                            isExporting={isExporting}
+                            onExport={handleExportAll}
+                            label={`Export All Loaded (${loadedPreviewItems.length})`}
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {activeControlPanel === "timeline" && state.mediaType === "video" ? (
+                  <>
+                    <div className="min-w-[280px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            Timeline
+                          </div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            {formatSeconds(previewVideoTime)} / {formatSeconds(previewVideoDuration)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addTimelineCue}
+                          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                        >
+                          Add cue
+                        </button>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                          <span className="font-medium text-slate-700">Preview frame</span>
+                          <span className="text-slate-500">{formatSeconds(previewVideoTime)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={Math.max(previewVideoDuration, 0)}
+                          step={0.1}
+                          value={Math.min(previewVideoTime, Math.max(previewVideoDuration, 0))}
+                          onChange={(event) => handlePreviewFrameChange(Number(event.target.value))}
+                          disabled={previewVideoDuration <= 0}
+                          className="w-full"
+                        />
+                        <div className="mt-2 text-sm text-slate-500">
+                          Scrub to the frame you want to line up, then place or edit cues.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="min-w-[220px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Cues
+                      </div>
+                      {state.timelineTextCues.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {state.timelineTextCues.map((cue) => (
+                            <button
+                              key={cue.id}
+                              type="button"
+                              onClick={() => handleSelectCue(cue)}
+                              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                selectedCue?.id === cue.id
+                                  ? "bg-slate-900 text-white"
+                                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                              }`}
+                            >
+                              {formatSeconds(cue.startTime)}-{formatSeconds(cue.endTime)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                          Add a cue to start swapping text over time.
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedCue ? (
+                      <div className="min-w-[360px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                        <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Active cue
+                        </div>
                         <div className="grid gap-4 md:grid-cols-2">
                           <label className="block">
                             <div className="mb-2 text-sm font-medium text-slate-700">
@@ -997,7 +1089,7 @@ export function Editor() {
                               step={0.1}
                               value={selectedCue.startTime}
                               onChange={(event) => updateSelectedCue("startTime", Number(event.target.value))}
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
                             />
                           </label>
                           <label className="block">
@@ -1011,7 +1103,7 @@ export function Editor() {
                               step={0.1}
                               value={selectedCue.endTime}
                               onChange={(event) => updateSelectedCue("endTime", Number(event.target.value))}
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
                             />
                           </label>
                           <label className="block md:col-span-2">
@@ -1020,7 +1112,7 @@ export function Editor() {
                               type="text"
                               value={selectedCue.headline}
                               onChange={(event) => updateSelectedCue("headline", event.target.value)}
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
                             />
                           </label>
                           <label className="block md:col-span-2">
@@ -1029,7 +1121,7 @@ export function Editor() {
                               type="text"
                               value={selectedCue.subtitle}
                               onChange={(event) => updateSelectedCue("subtitle", event.target.value)}
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
                             />
                           </label>
                           <button
@@ -1040,17 +1132,11 @@ export function Editor() {
                             Delete cue
                           </button>
                         </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
-                        Scrub to the frame you want, then add a cue where the text should change.
                       </div>
-                    </div>
-                  )}
-                </div>
-              ) : null}
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
             </div>
 
             <div
@@ -1355,13 +1441,14 @@ function readImageDimensions(src: string) {
 }
 
 function readVideoDimensions(src: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+  return new Promise<{ width: number; height: number; duration: number }>((resolve, reject) => {
     const video = document.createElement("video");
 
     video.onloadedmetadata = () => {
       resolve({
         width: video.videoWidth,
         height: video.videoHeight,
+        duration: video.duration,
       });
     };
 
