@@ -19,6 +19,8 @@ export type EditorState = {
   textColor: string;
   backgroundColor: string;
   phoneScale: number;
+  phoneX: number;
   phoneY: number;
+  phoneRotation: number;
   textSpacing: number;
 };

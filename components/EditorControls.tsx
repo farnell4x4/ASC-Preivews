@@ -23,6 +23,14 @@ function ControlGroup({
 }
 
 export function EditorControls({ state, onStateChange, onUpload }: EditorControlsProps) {
+  const handlePhoneScaleInput = (value: string) => {
+    const nextValue = Number(value);
+
+    if (Number.isFinite(nextValue) && nextValue > 0) {
+      onStateChange("phoneScale", nextValue);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-panel">
@@ -155,27 +163,62 @@ export function EditorControls({ state, onStateChange, onUpload }: EditorControl
         </div>
         <div className="space-y-4">
           <ControlGroup label={`Phone size: ${state.phoneScale.toFixed(2)}x`}>
+            <div className="space-y-3">
+              <input
+                type="range"
+                min={0.2}
+                max={3}
+                step={0.01}
+                value={Math.min(state.phoneScale, 3)}
+                onChange={(event) => onStateChange("phoneScale", Number(event.target.value))}
+                className="w-full"
+              />
+              <input
+                type="number"
+                min={0.1}
+                step={0.01}
+                value={state.phoneScale}
+                onChange={(event) => handlePhoneScaleInput(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-400"
+              />
+            </div>
+          </ControlGroup>
+          <ControlGroup label={`Phone horizontal position: ${state.phoneX.toFixed(1)}%`}>
             <input
               type="range"
-              min={0.7}
-              max={1.05}
-              step={0.01}
-              value={state.phoneScale}
-              onChange={(event) => onStateChange("phoneScale", Number(event.target.value))}
+              min={-50}
+              max={150}
+              step={0.5}
+              value={state.phoneX}
+              onChange={(event) => onStateChange("phoneX", Number(event.target.value))}
               className="w-full"
             />
           </ControlGroup>
-          <ControlGroup label={`Phone vertical position: ${state.phoneY}%`}>
+          <ControlGroup label={`Phone vertical position: ${state.phoneY.toFixed(1)}%`}>
             <input
               type="range"
-              min={-10}
-              max={14}
-              step={1}
+              min={-50}
+              max={150}
+              step={0.5}
               value={state.phoneY}
               onChange={(event) => onStateChange("phoneY", Number(event.target.value))}
               className="w-full"
             />
           </ControlGroup>
+          <ControlGroup label={`Phone rotation: ${state.phoneRotation.toFixed(0)}deg`}>
+            <input
+              type="range"
+              min={-180}
+              max={180}
+              step={1}
+              value={state.phoneRotation}
+              onChange={(event) => onStateChange("phoneRotation", Number(event.target.value))}
+              className="w-full"
+            />
+          </ControlGroup>
+          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+            Drag the phone directly in the preview to place it anywhere on the canvas.
+          </div>
         </div>
       </div>
     </div>

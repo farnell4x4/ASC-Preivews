@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorControls } from "@/components/EditorControls";
 import { ExportButton } from "@/components/ExportButton";
 import { ScreenshotCanvas } from "@/components/ScreenshotCanvas";
@@ -19,7 +19,9 @@ const initialState: EditorState = {
   textColor: "#0f172a",
   backgroundColor: "#f8fafc",
   phoneScale: 0.92,
-  phoneY: 4,
+  phoneX: 50,
+  phoneY: 52.5,
+  phoneRotation: 0,
   textSpacing: 28,
 };
 
@@ -28,12 +30,38 @@ export function Editor() {
   const [isExporting, setIsExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
   const exportRef = useRef<HTMLDivElement>(null);
-  const objectUrlRef = useRef<string | null>(null);
+  const previewFrameRef = useRef<HTMLDivElement>(null);
+  const [previewWidth, setPreviewWidth] = useState(420);
 
   const selectedPreset = useMemo(
     () => canvasPresets.find((preset) => preset.id === state.selectedPresetId) ?? defaultPreset,
     [state.selectedPresetId],
   );
+  const previewScale = previewWidth / selectedPreset.width;
+
+  useEffect(() => {
+    const node = previewFrameRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setPreviewWidth(node.getBoundingClientRect().width || 420);
+    };
+
+    updateWidth();
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [selectedPreset.id]);
 
   const handleStateChange = <K extends keyof EditorState>(key: K, value: EditorState[K]) => {
     setState((current) => ({
@@ -42,19 +70,18 @@ export function Editor() {
     }));
   };
 
-  const handleUpload = (file: File | null) => {
+  const handleUpload = async (file: File | null) => {
     if (!file) {
       return;
     }
 
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
+    try {
+      const nextUrl = await readFileAsDataUrl(file);
+      handleStateChange("uploadedScreenshotUrl", nextUrl);
+      setStatusMessage(`Loaded ${file.name}.`);
+    } catch {
+      setStatusMessage("Unable to read that image file.");
     }
-
-    const nextUrl = URL.createObjectURL(file);
-    objectUrlRef.current = nextUrl;
-    handleStateChange("uploadedScreenshotUrl", nextUrl);
-    setStatusMessage(`Loaded ${file.name}.`);
   };
 
   const handleExport = async () => {
@@ -75,8 +102,12 @@ export function Editor() {
       const link = document.createElement("a");
       link.href = blobUrl;
       link.download = `asc-screenshot-${selectedPreset.width}x${selectedPreset.height}.png`;
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(blobUrl);
+      link.remove();
+      window.setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+      }, 1000);
       setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} PNG.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to export PNG.";
@@ -134,12 +165,19 @@ export function Editor() {
 
             <div className="flex min-h-[720px] items-center justify-center rounded-[1.75rem] bg-[radial-gradient(circle_at_top,#dbeafe_0%,#f8fafc_35%,#fff_100%)] p-4">
               <div
+                ref={previewFrameRef}
                 className="relative w-full max-w-[420px] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
                 style={{
                   aspectRatio: `${selectedPreset.width} / ${selectedPreset.height}`,
                 }}
               >
-                <ScreenshotCanvas preset={selectedPreset} state={state} />
+                <ScreenshotCanvas
+                  preset={selectedPreset}
+                  state={state}
+                  renderScale={previewScale}
+                  interactive
+                  onStateChange={handleStateChange}
+                />
               </div>
             </div>
           </section>
@@ -182,9 +220,30 @@ export function Editor() {
             height: selectedPreset.height,
           }}
         >
-          <ScreenshotCanvas preset={selectedPreset} state={state} exportMode />
+          <ScreenshotCanvas preset={selectedPreset} state={state} />
         </div>
       </div>
     </main>
   );
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Unexpected file reader result."));
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Unable to read file."));
+    };
+
+    reader.readAsDataURL(file);
+  });
 }

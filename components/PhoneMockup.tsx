@@ -1,28 +1,37 @@
 // components/PhoneMockup.tsx
 
-import Image from "next/image";
 import type { DeviceKind } from "@/lib/types";
 
 type PhoneMockupProps = {
   screenshotUrl: string | null;
   device: DeviceKind;
+  renderScale?: number;
 };
 
-export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
+export function PhoneMockup({
+  screenshotUrl,
+  device,
+  renderScale = 1,
+}: PhoneMockupProps) {
   const isTablet = device === "tablet";
+  const scalePx = (value: number) => `${value * renderScale}px`;
+
+  const bodyRadius = isTablet ? scalePx(72) : scalePx(96);
+  const screenRadius = isTablet ? scalePx(54) : scalePx(78);
 
   return (
     <div className="relative w-full">
       <div
-        className="relative mx-auto bg-[#111827] shadow-[0_34px_80px_rgba(15,23,42,0.36)]"
+        className="relative mx-auto bg-[#111827]"
         style={{
           width: "100%",
           aspectRatio: isTablet ? "0.78 / 1" : "0.49 / 1",
-          borderRadius: isTablet ? "7.5% / 5.85%" : "10.5% / 5.15%",
+          borderRadius: bodyRadius,
           padding: isTablet ? "2.2%" : "2.7%",
+          boxShadow: `0 ${scalePx(30)} ${scalePx(56)} rgba(15,23,42,0.18)`,
         }}
       >
-        {/* Right power button - keep current position */}
+        {/* Right power button */}
         <div
           className="absolute bg-[#0b1120]"
           style={{
@@ -31,7 +40,7 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
             width: "1.15%",
             height: isTablet ? "9%" : "10%",
             borderRadius: "999px",
-            boxShadow: "inset -1px 0 1px rgba(255,255,255,0.16)",
+            boxShadow: `inset -${scalePx(1)} 0 ${scalePx(1)} rgba(255,255,255,0.16)`,
           }}
         />
 
@@ -44,7 +53,7 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
             width: "1.15%",
             height: isTablet ? "7.5%" : "8.5%",
             borderRadius: "999px",
-            boxShadow: "inset 1px 0 1px rgba(255,255,255,0.16)",
+            boxShadow: `inset ${scalePx(1)} 0 ${scalePx(1)} rgba(255,255,255,0.16)`,
           }}
         />
 
@@ -57,7 +66,7 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
             width: "1.15%",
             height: isTablet ? "7.5%" : "8.5%",
             borderRadius: "999px",
-            boxShadow: "inset 1px 0 1px rgba(255,255,255,0.16)",
+            boxShadow: `inset ${scalePx(1)} 0 ${scalePx(1)} rgba(255,255,255,0.16)`,
           }}
         />
 
@@ -65,34 +74,52 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
         <div
           className="relative h-full w-full overflow-hidden bg-white"
           style={{
-            borderRadius: isTablet ? "5.8% / 4.5%" : "8.2% / 4%",
+            borderRadius: screenRadius,
           }}
         >
           {screenshotUrl ? (
-            <Image
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               src={screenshotUrl}
               alt="Uploaded app screenshot preview"
-              fill
-              unoptimized
-              sizes="100vw"
-              className="object-cover"
+              className="block h-full w-full object-cover"
+              style={{
+                borderRadius: screenRadius,
+              }}
               draggable={false}
             />
           ) : (
             <div className="flex h-full w-full flex-col justify-between bg-[linear-gradient(180deg,#0f172a_0%,#1e3a8a_48%,#60a5fa_100%)] p-[8%] text-white">
               <div>
-                <div className="text-[8px] uppercase tracking-[0.35em] text-white/60">
+                <div
+                  className="uppercase text-white/60"
+                  style={{
+                    fontSize: scalePx(8),
+                    letterSpacing: `${0.35 * renderScale}em`,
+                  }}
+                >
                   Sample app
                 </div>
-                <div className="mt-[6%] text-[13px] font-semibold">
+                <div
+                  className="mt-[6%] font-semibold"
+                  style={{ fontSize: scalePx(13) }}
+                >
                   Momentum dashboard
                 </div>
               </div>
 
               <div className="space-y-[5%]">
-                <div className="rounded-[24px] bg-white/14 p-[8%] backdrop-blur">
-                  <div className="text-[22px] font-semibold">94%</div>
-                  <div className="mt-[4%] text-[10px] text-white/72">
+                <div
+                  className="bg-white/14 p-[8%] backdrop-blur"
+                  style={{ borderRadius: scalePx(24) }}
+                >
+                  <div className="font-semibold" style={{ fontSize: scalePx(22) }}>
+                    94%
+                  </div>
+                  <div
+                    className="mt-[4%] text-white/72"
+                    style={{ fontSize: scalePx(10) }}
+                  >
                     Goal completion this week
                   </div>
                 </div>
@@ -101,7 +128,11 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
                   {["Plan", "Build", "Ship"].map((item) => (
                     <div
                       key={item}
-                      className="rounded-[18px] bg-white/12 px-[4%] py-[16%] text-center text-[9px] text-white/78"
+                      className="bg-white/12 px-[4%] py-[16%] text-center text-white/78"
+                      style={{
+                        borderRadius: scalePx(18),
+                        fontSize: scalePx(9),
+                      }}
                     >
                       {item}
                     </div>
@@ -124,16 +155,22 @@ export function PhoneMockup({ screenshotUrl, device }: PhoneMockupProps) {
           )}
 
           {/* Subtle glass */}
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.16),transparent_24%,transparent_62%,rgba(255,255,255,0.05)_100%)]" />
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              borderRadius: screenRadius,
+              background:
+                "linear-gradient(180deg,rgba(255,255,255,0.14),transparent 24%,transparent 62%,rgba(255,255,255,0.05) 100%)",
+            }}
+          />
         </div>
 
         {/* Outer edge highlight */}
         <div
           className="pointer-events-none absolute inset-0"
           style={{
-            borderRadius: isTablet ? "7.5% / 5.85%" : "10.5% / 5.15%",
-            boxShadow:
-              "inset 0 0 0 1px rgba(255,255,255,0.14), inset 0 16px 28px rgba(255,255,255,0.07), inset 0 -18px 30px rgba(0,0,0,0.22)",
+            borderRadius: bodyRadius,
+            boxShadow: `inset 0 0 0 ${scalePx(1)} rgba(255,255,255,0.14), inset 0 ${scalePx(16)} ${scalePx(28)} rgba(255,255,255,0.07), inset 0 -${scalePx(18)} ${scalePx(30)} rgba(0,0,0,0.22)`,
           }}
         />
       </div>

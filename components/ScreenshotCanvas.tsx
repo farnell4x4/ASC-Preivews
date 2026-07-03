@@ -1,30 +1,87 @@
+import { useRef } from "react";
 import { PhoneMockup } from "@/components/PhoneMockup";
 import type { CanvasPreset, EditorState } from "@/lib/types";
 
 type ScreenshotCanvasProps = {
   preset: CanvasPreset;
   state: EditorState;
-  exportMode?: boolean;
+  renderScale?: number;
+  interactive?: boolean;
+  onStateChange?: <K extends keyof EditorState>(key: K, value: EditorState[K]) => void;
 };
 
 export function ScreenshotCanvas({
   preset,
   state,
-  exportMode = false,
+  renderScale = 1,
+  interactive = false,
+  onStateChange,
 }: ScreenshotCanvasProps) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originPhoneX: number;
+    originPhoneY: number;
+  } | null>(null);
   const isTop = state.textPosition === "top";
-  const paddingX = exportMode ? 88 : 24;
-  const topPad = exportMode ? 96 : 26;
-  const bottomPad = exportMode ? 104 : 28;
-  const titleSize = exportMode ? state.fontSize : state.fontSize / 3.4;
-  const subtitleSize = exportMode ? Math.max(state.fontSize * 0.36, 34) : Math.max(state.fontSize / 8.5, 12);
-  const gapSize = exportMode ? state.textSpacing : Math.max(state.textSpacing / 3.2, 8);
+  const scalePx = (value: number) => value * renderScale;
+  const paddingX = scalePx(88);
+  const topPad = scalePx(96);
+  const bottomPad = scalePx(104);
+  const titleSize = scalePx(state.fontSize);
+  const subtitleSize = scalePx(Math.max(state.fontSize * 0.36, 34));
+  const gapSize = scalePx(state.textSpacing);
   const phoneWidthPercent =
     (preset.device === "tablet" ? 56 : 62) * state.phoneScale;
-  const phoneTranslateY = `${state.phoneY}%`;
+
+  const handlePointerDown = (event: import("react").PointerEvent<HTMLDivElement>) => {
+    if (!interactive || !onStateChange) {
+      return;
+    }
+
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originPhoneX: state.phoneX,
+      originPhoneY: state.phoneY,
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: import("react").PointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    const canvasNode = canvasRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId || !canvasNode || !onStateChange) {
+      return;
+    }
+
+    const rect = canvasNode.getBoundingClientRect();
+
+    if (!rect.width || !rect.height) {
+      return;
+    }
+
+    const deltaXPercent = ((event.clientX - dragState.startX) / rect.width) * 100;
+    const deltaYPercent = ((event.clientY - dragState.startY) / rect.height) * 100;
+
+    onStateChange("phoneX", dragState.originPhoneX + deltaXPercent);
+    onStateChange("phoneY", dragState.originPhoneY + deltaYPercent);
+  };
+
+  const handlePointerEnd = (event: import("react").PointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current?.pointerId === event.pointerId) {
+      dragStateRef.current = null;
+    }
+  };
 
   return (
     <div
+      ref={canvasRef}
       className="relative h-full w-full overflow-hidden"
       style={{
         backgroundColor: state.backgroundColor,
@@ -48,7 +105,7 @@ export function ScreenshotCanvas({
               color: state.textColor,
               margin: 0,
               fontWeight: 700,
-              maxWidth: exportMode ? "84%" : "100%",
+              maxWidth: "84%",
             }}
           >
             {state.headline}
@@ -61,7 +118,7 @@ export function ScreenshotCanvas({
               opacity: 0.84,
               margin: 0,
               marginTop: gapSize,
-              maxWidth: exportMode ? "80%" : "100%",
+              maxWidth: "80%",
             }}
           >
             {state.subtitle}
@@ -69,14 +126,27 @@ export function ScreenshotCanvas({
         </div>
       </div>
 
-      <div className="absolute inset-0 flex items-center justify-center px-[12%]">
+      <div className="pointer-events-none absolute inset-0">
         <div
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onLostPointerCapture={handlePointerEnd}
+          className={interactive ? "pointer-events-auto absolute touch-none cursor-grab active:cursor-grabbing" : "absolute"}
           style={{
             width: `${phoneWidthPercent}%`,
-            transform: `translateY(${phoneTranslateY})`,
+            left: `${state.phoneX}%`,
+            top: `${state.phoneY}%`,
+            transform: `translate(-50%, -50%) rotate(${state.phoneRotation}deg)`,
+            transformOrigin: "center center",
           }}
         >
-          <PhoneMockup screenshotUrl={state.uploadedScreenshotUrl} device={preset.device} />
+          <PhoneMockup
+            screenshotUrl={state.uploadedScreenshotUrl}
+            device={preset.device}
+            renderScale={renderScale}
+          />
         </div>
       </div>
     </div>
