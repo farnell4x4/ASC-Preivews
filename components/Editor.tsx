@@ -13,8 +13,10 @@ import {
   getFileSessionId,
   listSavedEditorSessions,
   loadActiveSessionId,
+  loadLoadedSessionIds,
   loadEditorSession,
   saveActiveSessionId,
+  saveLoadedSessionIds,
   saveEditorSession,
 } from "@/lib/editorSessionStore";
 import { exportStateAsPng } from "@/lib/exportImage";
@@ -58,6 +60,8 @@ export function Editor() {
   const [activeSessionId, setActiveSessionId] = useState(DEFAULT_SESSION_ID);
   const [isSessionReady, setIsSessionReady] = useState(false);
   const [savedSessions, setSavedSessions] = useState<SavedEditorSessionSummary[]>([]);
+  const [loadedSessionIds, setLoadedSessionIds] = useState<string[]>([]);
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
   const [isSavedFilesOpen, setIsSavedFilesOpen] = useState(false);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
@@ -75,22 +79,75 @@ export function Editor() {
   const previewWidth = selectedPreset.width * previewScale;
   const previewHeight = selectedPreset.height * previewScale;
   const backgroundButtonStyle = useMemo(() => getBackgroundStyle(state), [state]);
+  const savedSessionMap = useMemo(
+    () => new Map(savedSessions.map((session) => [session.id, session])),
+    [savedSessions],
+  );
+  const loadedPreviewItems = useMemo(
+    () =>
+      loadedSessionIds
+        .filter((sessionId, index, allIds) => allIds.indexOf(sessionId) === index)
+        .map((sessionId) => {
+          if (sessionId === activeSessionId && state.uploadedScreenshotUrl) {
+            return {
+              id: sessionId,
+              displayName:
+                savedSessionMap.get(sessionId)?.displayName ??
+                getDisplayNameFromSessionId(sessionId),
+              state,
+            };
+          }
 
-  const refreshSavedSessions = () => {
-    void listSavedEditorSessions()
-      .then((sessions) => {
-        setSavedSessions(sessions);
-      })
-      .catch(() => {
-        setSavedSessions([]);
-      });
+          const savedSession = savedSessionMap.get(sessionId);
+          return savedSession
+            ? {
+                id: savedSession.id,
+                displayName: savedSession.displayName,
+                state: savedSession.state,
+              }
+            : null;
+        })
+        .filter((item): item is { id: string; displayName: string; state: EditorState } => Boolean(item)),
+    [activeSessionId, loadedSessionIds, savedSessionMap, state],
+  );
+
+  const refreshSavedSessions = async () => {
+    try {
+      const sessions = await listSavedEditorSessions();
+      setSavedSessions(sessions);
+      return sessions;
+    } catch {
+      setSavedSessions([]);
+      return [];
+    }
+  };
+
+  const activateSession = async (sessionId: string) => {
+    const savedSession = await loadEditorSession(sessionId);
+
+    if (!savedSession) {
+      throw new Error("That saved file could not be restored.");
+    }
+
+    setActiveSessionId(sessionId);
+    setState({
+      ...initialState,
+      ...savedSession.state,
+    });
+    setPreviewZoom(savedSession.previewZoom);
+  };
+
+  const resetToDefaultDraft = () => {
+    setActiveSessionId(DEFAULT_SESSION_ID);
+    setState(initialState);
+    setPreviewZoom(1);
   };
 
   useEffect(() => {
     let isCancelled = false;
 
-    void loadActiveSessionId()
-      .then(async (savedActiveSessionId) => {
+    void Promise.all([loadActiveSessionId(), loadLoadedSessionIds()])
+      .then(async ([savedActiveSessionId, savedLoadedSessionIds]) => {
         const nextSessionId = savedActiveSessionId ?? DEFAULT_SESSION_ID;
         const savedSession = await loadEditorSession(nextSessionId);
 
@@ -99,9 +156,20 @@ export function Editor() {
         }
 
         setActiveSessionId(nextSessionId);
+        setLoadedSessionIds(
+          savedLoadedSessionIds.filter((sessionId, index, allIds) => allIds.indexOf(sessionId) === index),
+        );
 
         if (!savedSession) {
           return;
+        }
+
+        if (
+          nextSessionId !== DEFAULT_SESSION_ID &&
+          savedSession.state.uploadedScreenshotUrl &&
+          !savedLoadedSessionIds.includes(nextSessionId)
+        ) {
+          setLoadedSessionIds([nextSessionId]);
         }
 
         setState({
@@ -141,15 +209,14 @@ export function Editor() {
       void Promise.all([
         saveEditorSession(activeSessionId, { state, previewZoom }),
         saveActiveSessionId(activeSessionId),
-      ]).then(() => {
-        refreshSavedSessions();
-      });
+        saveLoadedSessionIds(loadedSessionIds),
+      ]).then(() => refreshSavedSessions());
     }, 250);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [activeSessionId, isSessionReady, previewZoom, state]);
+  }, [activeSessionId, isSessionReady, loadedSessionIds, previewZoom, state]);
 
   useEffect(() => {
     const node = previewViewportRef.current;
@@ -188,42 +255,134 @@ export function Editor() {
     }));
   };
 
-  const handleUpload = async (file: File | null) => {
-    if (!file) {
+  const moveLoadedSession = (
+    draggedId: string,
+    targetId: string,
+    placement: "before" | "after",
+  ) => {
+    if (draggedId === targetId) {
+      return;
+    }
+
+    setLoadedSessionIds((current) => {
+      const fromIndex = current.indexOf(draggedId);
+      const targetIndex = current.indexOf(targetId);
+
+      if (fromIndex === -1 || targetIndex === -1) {
+        return current;
+      }
+
+      const next = [...current];
+      next.splice(fromIndex, 1);
+
+      const adjustedTargetIndex = next.indexOf(targetId);
+      const insertIndex = placement === "before" ? adjustedTargetIndex : adjustedTargetIndex + 1;
+      next.splice(insertIndex, 0, draggedId);
+      return next;
+    });
+  };
+
+  const handlePreviewDragStart = (sessionId: string) => {
+    if (sessionId === activeSessionId) {
+      return;
+    }
+
+    setDraggedSessionId(sessionId);
+  };
+
+  const handlePreviewDragEnd = () => {
+    setDraggedSessionId(null);
+  };
+
+  const handlePreviewDragOver = (
+    event: import("react").DragEvent<HTMLDivElement>,
+    targetId: string,
+  ) => {
+    if (!draggedSessionId || draggedSessionId === targetId) {
+      return;
+    }
+
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const placement = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    moveLoadedSession(draggedSessionId, targetId, placement);
+  };
+
+  const handleUpload = async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []);
+
+    if (files.length === 0) {
       return;
     }
 
     try {
       setIsSessionReady(false);
+      const baseState = state;
+      const basePreviewZoom = previewZoom;
+      const processedFiles = await Promise.all(
+        files.map(async (file) => {
+          const sessionId = getFileSessionId(file);
+          const nextUrl = await readFileAsDataUrl(file);
+          const savedSession = await loadEditorSession(sessionId);
+          const restoredState = savedSession
+            ? {
+                ...initialState,
+                ...savedSession.state,
+              }
+            : null;
+          const presetForFile =
+            canvasPresets.find(
+              (preset) =>
+                preset.id === (restoredState?.selectedPresetId ?? baseState.selectedPresetId),
+            ) ?? defaultPreset;
+          const nextState = restoredState
+            ? {
+                ...restoredState,
+                uploadedScreenshotUrl: nextUrl,
+              }
+            : {
+                ...baseState,
+                uploadedScreenshotUrl: nextUrl,
+                ...getAutoFitPhoneLayout(
+                  baseState,
+                  presetForFile,
+                  await readImageDimensions(nextUrl),
+                ),
+              };
+          const nextPreviewZoom = savedSession?.previewZoom ?? basePreviewZoom;
 
-      const sessionId = getFileSessionId(file);
-      const nextUrl = await readFileAsDataUrl(file);
-      const savedSession = await loadEditorSession(sessionId);
-      const restoredState = savedSession
-        ? {
-            ...initialState,
-            ...savedSession.state,
-          }
-        : null;
-      const nextState = restoredState
-        ? {
-            ...restoredState,
-            uploadedScreenshotUrl: nextUrl,
-          }
-        : {
-            ...state,
-            uploadedScreenshotUrl: nextUrl,
-            ...getAutoFitPhoneLayout(
-              state,
-              selectedPreset,
-              await readImageDimensions(nextUrl),
-            ),
+          await saveEditorSession(sessionId, {
+            state: nextState,
+            previewZoom: nextPreviewZoom,
+          });
+
+          return {
+            sessionId,
+            state: nextState,
+            previewZoom: nextPreviewZoom,
           };
+        }),
+      );
 
-      setActiveSessionId(sessionId);
-      setPreviewZoom(savedSession?.previewZoom ?? previewZoom);
-      setState(nextState);
-      setStatusMessage(`Loaded ${file.name}.`);
+      const [nextActiveFile] = processedFiles;
+
+      if (!nextActiveFile) {
+        return;
+      }
+
+      setLoadedSessionIds((current) => {
+        const nextIds = [...processedFiles.map((file) => file.sessionId), ...current];
+        return nextIds.filter((sessionId, index) => nextIds.indexOf(sessionId) === index);
+      });
+      setActiveSessionId(nextActiveFile.sessionId);
+      setPreviewZoom(nextActiveFile.previewZoom);
+      setState(nextActiveFile.state);
+      await refreshSavedSessions();
+      setStatusMessage(
+        files.length === 1
+          ? `Loaded ${files[0]?.name}.`
+          : `Loaded ${files.length} files into the preview strip.`,
+      );
     } catch {
       setStatusMessage("Unable to read that image file.");
     } finally {
@@ -234,19 +393,10 @@ export function Editor() {
   const handleSelectSavedSession = async (sessionId: string) => {
     try {
       setIsSessionReady(false);
-      const savedSession = await loadEditorSession(sessionId);
-
-      if (!savedSession) {
-        setStatusMessage("That saved file could not be restored.");
-        return;
-      }
-
-      setActiveSessionId(sessionId);
-      setState({
-        ...initialState,
-        ...savedSession.state,
-      });
-      setPreviewZoom(savedSession.previewZoom);
+      await activateSession(sessionId);
+      setLoadedSessionIds((current) =>
+        current.includes(sessionId) ? current : [sessionId, ...current],
+      );
       setIsSavedFilesOpen(false);
       setStatusMessage("Restored the saved settings for that file.");
     } catch {
@@ -284,14 +434,26 @@ export function Editor() {
   const handleDeleteSavedSession = async (sessionId: string) => {
     try {
       await deleteEditorSession(sessionId);
+      const remainingLoadedSessionIds = loadedSessionIds.filter((loadedSessionId) => loadedSessionId !== sessionId);
+      setLoadedSessionIds(remainingLoadedSessionIds);
 
       if (activeSessionId === sessionId) {
-        setActiveSessionId(DEFAULT_SESSION_ID);
-        setState(initialState);
-        setPreviewZoom(1);
+        const nextSessionId = remainingLoadedSessionIds[0];
+
+        if (nextSessionId) {
+          setIsSessionReady(false);
+
+          try {
+            await activateSession(nextSessionId);
+          } finally {
+            setIsSessionReady(true);
+          }
+        } else {
+          resetToDefaultDraft();
+        }
       }
 
-      refreshSavedSessions();
+      void refreshSavedSessions();
       setStatusMessage("Deleted saved file.");
     } catch {
       setStatusMessage("Unable to delete that saved file.");
@@ -555,34 +717,119 @@ export function Editor() {
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/jpg"
-                    onChange={(event) => handleUpload(event.target.files?.[0] ?? null)}
+                    multiple
+                    onChange={(event) => {
+                      void handleUpload(event.target.files);
+                      event.currentTarget.value = "";
+                    }}
                     className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
                   />
+                  <div className="mt-2 text-sm text-slate-500">
+                    Add one file or a batch. Each file keeps its own saved layout.
+                  </div>
                 </label>
               </div>
             </div>
 
             <div
               ref={previewViewportRef}
-              className="flex items-start justify-center rounded-[1.75rem] bg-[radial-gradient(circle_at_top,#dbeafe_0%,#f8fafc_35%,#fff_100%)] p-4"
+              className="rounded-[1.75rem] bg-[radial-gradient(circle_at_top,#dbeafe_0%,#f8fafc_35%,#fff_100%)] p-4"
               style={{
                 minHeight: previewHeight + 32,
               }}
             >
-              <div
-                className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
-                style={{
-                  width: previewWidth,
-                  height: previewHeight,
-                }}
-              >
-                <ScreenshotCanvas
-                  preset={selectedPreset}
-                  state={state}
-                  renderScale={previewScale}
-                  interactive
-                  onStateChange={handleStateChange}
-                />
+              <div className="flex gap-5 overflow-x-auto pb-2">
+                {loadedPreviewItems.length > 0 ? (
+                  loadedPreviewItems.map((item) => {
+                    const itemPreset =
+                      canvasPresets.find((preset) => preset.id === item.state.selectedPresetId) ??
+                      defaultPreset;
+                    const itemScale =
+                      Math.min(Math.min(previewViewportWidth, 420) / itemPreset.width, fitHeight / itemPreset.height) *
+                      previewZoom;
+
+                    return (
+                      <div
+                        key={item.id}
+                        draggable={item.id !== activeSessionId}
+                        onClick={() => {
+                          if (item.id !== activeSessionId) {
+                            void handleSelectSavedSession(item.id);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            item.id !== activeSessionId &&
+                            (event.key === "Enter" || event.key === " ")
+                          ) {
+                            event.preventDefault();
+                            void handleSelectSavedSession(item.id);
+                          }
+                        }}
+                        onDragStart={() => handlePreviewDragStart(item.id)}
+                        onDragEnd={handlePreviewDragEnd}
+                        onDragOver={(event) => handlePreviewDragOver(event, item.id)}
+                        role={item.id === activeSessionId ? undefined : "button"}
+                        tabIndex={item.id === activeSessionId ? undefined : 0}
+                        className={`group relative shrink-0 rounded-[1.7rem] text-left transition ${
+                          item.id === activeSessionId
+                            ? ""
+                            : draggedSessionId === item.id
+                              ? "cursor-grabbing opacity-70"
+                              : "cursor-grab hover:-translate-y-0.5"
+                        }`}
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900">
+                              {item.displayName}
+                            </div>
+                            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                              {itemPreset.width}x{itemPreset.height}
+                            </div>
+                          </div>
+                          {item.id === activeSessionId ? (
+                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                              Active
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div
+                          className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
+                          style={{
+                            width: itemPreset.width * itemScale,
+                            height: itemPreset.height * itemScale,
+                          }}
+                        >
+                          <ScreenshotCanvas
+                            preset={itemPreset}
+                            state={item.state}
+                            renderScale={itemScale}
+                            interactive={item.id === activeSessionId}
+                            onStateChange={item.id === activeSessionId ? handleStateChange : undefined}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div
+                    className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
+                    style={{
+                      width: previewWidth,
+                      height: previewHeight,
+                    }}
+                  >
+                    <ScreenshotCanvas
+                      preset={selectedPreset}
+                      state={state}
+                      renderScale={previewScale}
+                      interactive
+                      onStateChange={handleStateChange}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -829,4 +1076,32 @@ function getAutoFitPhoneLayout(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getDisplayNameFromSessionId(sessionId: string) {
+  if (sessionId === DEFAULT_SESSION_ID) {
+    return "Current draft";
+  }
+
+  const prefix = "file:";
+
+  if (!sessionId.startsWith(prefix)) {
+    return "Saved file";
+  }
+
+  const remainder = sessionId.slice(prefix.length);
+  const sizeSeparator = remainder.lastIndexOf(":");
+
+  if (sizeSeparator === -1) {
+    return "Saved file";
+  }
+
+  const withoutTimestamp = remainder.slice(0, sizeSeparator);
+  const nameSeparator = withoutTimestamp.lastIndexOf(":");
+
+  if (nameSeparator === -1) {
+    return withoutTimestamp || "Saved file";
+  }
+
+  return withoutTimestamp.slice(0, nameSeparator) || "Saved file";
 }

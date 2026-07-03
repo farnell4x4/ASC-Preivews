@@ -5,6 +5,7 @@ const DATABASE_VERSION = 2;
 const SESSION_STORE_NAME = "editorSessions";
 const META_STORE_NAME = "editorMeta";
 const ACTIVE_SESSION_KEY = "activeSessionId";
+const LOADED_SESSION_IDS_KEY = "loadedSessionIds";
 
 export const DEFAULT_SESSION_ID = "default";
 
@@ -142,6 +143,54 @@ export async function saveActiveSessionId(sessionId: string) {
     request.onsuccess = () => resolve();
     request.onerror = () => {
       reject(request.error ?? new Error("Unable to save active editor session."));
+    };
+  });
+}
+
+export async function loadLoadedSessionIds() {
+  const database = await openDatabase();
+
+  return new Promise<string[]>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readonly");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.get(LOADED_SESSION_IDS_KEY);
+
+    request.onsuccess = () => {
+      const record = request.result as MetaRecord | undefined;
+
+      if (!record?.value) {
+        resolve([]);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(record.value);
+        resolve(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
+      } catch {
+        resolve([]);
+      }
+    };
+
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to load editor canvas order."));
+    };
+  });
+}
+
+export async function saveLoadedSessionIds(sessionIds: string[]) {
+  const database = await openDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.put({
+      key: LOADED_SESSION_IDS_KEY,
+      value: JSON.stringify(sessionIds),
+    } satisfies MetaRecord);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to save editor canvas order."));
     };
   });
 }
