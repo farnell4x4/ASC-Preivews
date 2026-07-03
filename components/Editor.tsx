@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EditorControls } from "@/components/EditorControls";
 import { ExportButton } from "@/components/ExportButton";
 import { ScreenshotCanvas } from "@/components/ScreenshotCanvas";
+import { getBackgroundModeLabel, getBackgroundStyle } from "@/lib/backgroundStyle";
 import { defaultPreset, canvasPresets } from "@/lib/canvasPresets";
-import { exportNodeAsPng } from "@/lib/exportImage";
+import { exportStateAsPng } from "@/lib/exportImage";
 import type { EditorState } from "@/lib/types";
 
 const initialState: EditorState = {
@@ -20,7 +20,11 @@ const initialState: EditorState = {
   textBoxWidth: 112,
   fontSize: 144,
   textColor: "#0f172a",
-  backgroundColor: "#f8fafc",
+  backgroundColor: "#ffffff",
+  backgroundMode: "solid",
+  backgroundAccentColor: "#000000",
+  backgroundAngle: 180,
+  backgroundFlip: false,
   phoneScale: 0.92,
   phoneX: 50,
   phoneY: 52.5,
@@ -36,7 +40,7 @@ export function Editor() {
   const [isExporting, setIsExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
   const [previewZoom, setPreviewZoom] = useState(1);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const [isBackgroundSheetOpen, setIsBackgroundSheetOpen] = useState(false);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
   const [fitHeight, setFitHeight] = useState(720);
@@ -52,6 +56,7 @@ export function Editor() {
   const previewScale = fitScale * previewZoom;
   const previewWidth = selectedPreset.width * previewScale;
   const previewHeight = selectedPreset.height * previewScale;
+  const backgroundButtonStyle = useMemo(() => getBackgroundStyle(state), [state]);
 
   useEffect(() => {
     const node = previewViewportRef.current;
@@ -112,19 +117,11 @@ export function Editor() {
   };
 
   const handleExport = async () => {
-    if (!exportRef.current) {
-      return;
-    }
-
     setIsExporting(true);
     setStatusMessage("Rendering your PNG...");
 
     try {
-      const blob = await exportNodeAsPng(
-        exportRef.current,
-        selectedPreset.width,
-        selectedPreset.height,
-      );
+      const blob = await exportStateAsPng(selectedPreset, state);
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
@@ -169,15 +166,7 @@ export function Editor() {
           </div>
         </header>
 
-        <section className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <aside>
-            <EditorControls
-              state={state}
-              onStateChange={handleStateChange}
-            />
-          </aside>
-
-          <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
+        <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
             <div className="mb-4 px-1">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
@@ -213,7 +202,86 @@ export function Editor() {
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-end">
+              <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Text & Color
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Font size: {state.fontSize}px
+                      </div>
+                      <input
+                        type="range"
+                        min={92}
+                        max={192}
+                        step={2}
+                        value={state.fontSize}
+                        onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
+                        className="w-full"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Text spacing: {state.textSpacing}px
+                      </div>
+                      <input
+                        type="range"
+                        min={18}
+                        max={72}
+                        step={2}
+                        value={state.textSpacing}
+                        onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
+                        className="w-full"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Text color
+                      </div>
+                      <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                        <input
+                          type="color"
+                          value={state.textColor}
+                          onChange={(event) => handleStateChange("textColor", event.target.value)}
+                          className="h-11 w-11 cursor-pointer rounded-full"
+                        />
+                        <span className="text-sm text-slate-600">{state.textColor}</span>
+                      </div>
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Background color
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsBackgroundSheetOpen(true)}
+                        className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300"
+                      >
+                        <span
+                          className="h-11 w-11 rounded-full border border-slate-200 shadow-inner"
+                          style={backgroundButtonStyle}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-slate-700">
+                            {getBackgroundModeLabel(state.backgroundMode)}
+                          </span>
+                          <span className="block truncate text-sm text-slate-500">
+                            {state.backgroundMode === "solid"
+                              ? state.backgroundColor
+                              : `${state.backgroundColor} -> ${state.backgroundAccentColor}`}
+                          </span>
+                        </span>
+                      </button>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4 xl:items-end">
                 <label className="w-full xl:max-w-[260px]">
                   <div className="mb-2 text-sm font-medium text-slate-700">
                     ASC preset
@@ -242,7 +310,7 @@ export function Editor() {
                     className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
                   />
                 </label>
-
+                </div>
               </div>
             </div>
 
@@ -268,24 +336,140 @@ className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg
                 />
               </div>
             </div>
-          </section>
         </section>
       </div>
 
-      <div className="pointer-events-none fixed left-[-10000px] top-0 opacity-0">
-        <div
-          ref={exportRef}
-          style={{
-            width: selectedPreset.width,
-            height: selectedPreset.height,
-          }}
-        >
-          <ScreenshotCanvas preset={selectedPreset} state={state} />
+      {isBackgroundSheetOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/30 p-4 md:items-center">
+          <button
+            type="button"
+            aria-label="Close background options"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setIsBackgroundSheetOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-[720px] rounded-[2rem] border border-white/70 bg-white p-5 shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Background
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  Solid and gradient fills
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBackgroundSheetOpen(false)}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+              {(["solid", "linear", "advanced", "radial"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => handleStateChange("backgroundMode", mode)}
+                  className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
+                    state.backgroundMode === mode
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">{getBackgroundModeLabel(mode)}</div>
+                  <div className={`mt-2 h-14 rounded-2xl border ${state.backgroundMode === mode ? "border-white/20" : "border-slate-200"}`} style={getBackgroundStyle({ ...state, backgroundMode: mode })} />
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <div className="mb-2 text-sm font-medium text-slate-700">
+                  Primary color
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <input
+                    type="color"
+                    value={state.backgroundColor}
+                    onChange={(event) => handleStateChange("backgroundColor", event.target.value)}
+                    className="h-11 w-11 cursor-pointer rounded-full"
+                  />
+                  <span className="text-sm text-slate-600">{state.backgroundColor}</span>
+                </div>
+              </label>
+
+              <label className="block">
+                <div className="mb-2 text-sm font-medium text-slate-700">
+                  Secondary color
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <input
+                    type="color"
+                    value={state.backgroundAccentColor}
+                    onChange={(event) => handleStateChange("backgroundAccentColor", event.target.value)}
+                    className="h-11 w-11 cursor-pointer rounded-full"
+                  />
+                  <span className="text-sm text-slate-600">{state.backgroundAccentColor}</span>
+                </div>
+              </label>
+            </div>
+
+            {state.backgroundMode !== "solid" ? (
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {state.backgroundMode !== "radial" ? (
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">
+                      Angle: {state.backgroundAngle}deg
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={360}
+                      step={5}
+                      value={state.backgroundAngle}
+                      onChange={(event) => handleStateChange("backgroundAngle", Number(event.target.value))}
+                      className="w-full"
+                    />
+                  </label>
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                    Circle gradients radiate from the center of the canvas.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleStateChange("backgroundFlip", !state.backgroundFlip)}
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${
+                    state.backgroundFlip
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Flip inside out</div>
+                  <div className={`mt-1 text-sm ${state.backgroundFlip ? "text-white/74" : "text-slate-500"}`}>
+                    Reverse which color sits on the outside versus the inside.
+                  </div>
+                </button>
+              </div>
+            ) : null}
+
+            <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Preview
+              </div>
+              <div className="h-28 rounded-[1.25rem] border border-slate-200" style={backgroundButtonStyle} />
+            </div>
+          </div>
         </div>
-      </div>
+      ) : null}
     </main>
   );
 }
+
+
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {

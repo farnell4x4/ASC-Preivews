@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { PhoneMockup } from "@/components/PhoneMockup";
+import { getBackgroundStyle } from "@/lib/backgroundStyle";
+import { computeCanvasLayout } from "@/lib/canvasLayout";
 import type { CanvasPreset, EditorState } from "@/lib/types";
 
 type ScreenshotCanvasProps = {
@@ -49,22 +51,25 @@ export function ScreenshotCanvas({
   } | null>(null);
   const isTop = state.textPosition === "top";
   const scalePx = (value: number) => value * renderScale;
-  const canvasWidthPx = preset.width * renderScale;
-  const canvasHeightPx = preset.height * renderScale;
-  const topPad = preset.height * renderScale * 0.072;
-  const bottomPad = preset.height * renderScale * 0.078;
-  const textBoxLeftPx = (state.textBoxX / 100) * canvasWidthPx;
-  const textBoxOffsetYPx = (state.textBoxY / 100) * canvasHeightPx;
-  const textBoxWidthPx = (state.textBoxWidth / 100) * canvasWidthPx;
-  const titleSize = scalePx(state.fontSize);
-  const subtitleSize = scalePx(Math.max(state.fontSize * 0.36, 34));
-  const gapSize = scalePx(state.textSpacing);
-  const basePhoneWidthPercent = preset.device === "tablet" ? 56 : 62;
-  const deviceAspect = preset.device === "tablet" ? 0.78 : 0.49;
-  const basePhoneWidthPx = canvasWidthPx * (basePhoneWidthPercent / 100) * state.phoneScale;
-  const phoneWidthPx = basePhoneWidthPx * state.phoneWidthScale;
-  const basePhoneHeightPx = basePhoneWidthPx / deviceAspect;
-  const phoneHeightPx = basePhoneHeightPx * state.phoneHeightScale;
+  const {
+    canvasWidthPx,
+    canvasHeightPx,
+    topPad,
+    bottomPad,
+    textBoxLeftPx,
+    textBoxOffsetYPx,
+    textBoxWidthPx,
+    titleSize,
+    subtitleSize,
+    gapSize,
+    basePhoneWidthPx,
+    basePhoneHeightPx,
+    phoneWidthPx,
+    phoneHeightPx,
+    phoneCenterXPx,
+    phoneCenterYPx,
+  } = computeCanvasLayout(preset, state, renderScale);
+  const backgroundStyle = getBackgroundStyle(state);
 
   useEffect(() => {
     autoSizeTextArea(headlineInputRef.current);
@@ -266,9 +271,7 @@ export function ScreenshotCanvas({
     <div
       ref={canvasRef}
       className={`relative h-full w-full ${interactive ? "overflow-visible" : "overflow-hidden"}`}
-      style={{
-        backgroundColor: state.backgroundColor,
-      }}
+      style={backgroundStyle}
     >
       <div
         className="absolute z-30"
@@ -358,116 +361,124 @@ export function ScreenshotCanvas({
 
       <div className="pointer-events-none absolute inset-0">
         <div
-          onPointerDown={handleMovePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerEnd}
-          onPointerCancel={handlePointerEnd}
-          onLostPointerCapture={handlePointerEnd}
-          className={interactive ? "group pointer-events-auto absolute touch-none cursor-grab active:cursor-grabbing" : "absolute"}
+          className="absolute"
           style={{
             width: phoneWidthPx,
             height: phoneHeightPx,
-            left: `${state.phoneX}%`,
-            top: `${state.phoneY}%`,
-            transform: `translate(-50%, -50%) rotate(${state.phoneRotation}deg)`,
-            transformOrigin: "center center",
+            left: phoneCenterXPx,
+            top: phoneCenterYPx,
+            transform: "translate(-50%, -50%)",
           }}
         >
-          <PhoneMockup
-            screenshotUrl={state.uploadedScreenshotUrl}
-            device={preset.device}
-            renderScale={renderScale}
-            cornerScale={state.phoneCornerScale}
-          />
+          <div
+            onPointerDown={handleMovePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerEnd}
+            onPointerCancel={handlePointerEnd}
+            onLostPointerCapture={handlePointerEnd}
+            className={interactive ? "group pointer-events-auto relative h-full w-full touch-none cursor-grab active:cursor-grabbing" : "relative h-full w-full"}
+            style={{
+              transform: `rotate(${state.phoneRotation}deg)`,
+              transformOrigin: "center center",
+            }}
+          >
+            <PhoneMockup
+              screenshotUrl={state.uploadedScreenshotUrl}
+              device={preset.device}
+              renderScale={renderScale}
+              cornerScale={state.phoneCornerScale}
+              frameWidthPx={phoneWidthPx}
+            />
 
-          {interactive ? (
-            <>
-              <div
-                onPointerDown={(event) => handleRotatePointerDown(event)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute -left-4 -top-4 flex h-8 w-8 cursor-ew-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M6 8a7 7 0 1 1-1.1 8.3" />
-                  <path d="M6 4v4h4" />
-                </svg>
-              </div>
+            {interactive ? (
+              <>
+                <div
+                  onPointerDown={(event) => handleRotatePointerDown(event)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute -left-4 -top-4 flex h-8 w-8 cursor-ew-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 8a7 7 0 1 1-1.1 8.3" />
+                    <path d="M6 4v4h4" />
+                  </svg>
+                </div>
 
-              <div
-                onPointerDown={(event) => handleScalePointerDown(event)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute -right-4 -top-4 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 16 4 20" />
-                  <path d="M16 8 20 4" />
-                  <path d="M7 20H4v-3" />
-                  <path d="M17 4h3v3" />
-                </svg>
-              </div>
+                <div
+                  onPointerDown={(event) => handleScalePointerDown(event)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute -right-4 -top-4 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 16 4 20" />
+                    <path d="M16 8 20 4" />
+                    <path d="M7 20H4v-3" />
+                    <path d="M17 4h3v3" />
+                  </svg>
+                </div>
 
-              <div
-                onPointerDown={(event) => handleCornerPointerDown(event)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute -bottom-4 -left-4 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
-              >
-                <CornerRadiusIcon className="h-4 w-4" />
-              </div>
+                <div
+                  onPointerDown={(event) => handleCornerPointerDown(event)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute -bottom-4 -left-4 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
+                >
+                  <CornerRadiusIcon className="h-4 w-4" />
+                </div>
 
-              <div
-                onPointerDown={(event) => handleWidthPointerDown(event, -1)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute bottom-10 left-0 top-10 flex w-5 -translate-x-1/2 cursor-ew-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
-              >
-                <SideHandle orientation="horizontal" />
-              </div>
+                <div
+                  onPointerDown={(event) => handleWidthPointerDown(event, -1)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute bottom-10 left-0 top-10 flex w-5 -translate-x-1/2 cursor-ew-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
+                >
+                  <SideHandle orientation="horizontal" />
+                </div>
 
-              <div
-                onPointerDown={(event) => handleWidthPointerDown(event, 1)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute bottom-10 right-0 top-10 flex w-5 translate-x-1/2 cursor-ew-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
-              >
-                <SideHandle orientation="horizontal" />
-              </div>
+                <div
+                  onPointerDown={(event) => handleWidthPointerDown(event, 1)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute bottom-10 right-0 top-10 flex w-5 translate-x-1/2 cursor-ew-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
+                >
+                  <SideHandle orientation="horizontal" />
+                </div>
 
-              <div
-                onPointerDown={(event) => handleHeightPointerDown(event, -1)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute left-10 right-10 top-0 flex h-5 -translate-y-1/2 cursor-ns-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
-              >
-                <SideHandle orientation="vertical" />
-              </div>
+                <div
+                  onPointerDown={(event) => handleHeightPointerDown(event, -1)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute left-10 right-10 top-0 flex h-5 -translate-y-1/2 cursor-ns-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
+                >
+                  <SideHandle orientation="vertical" />
+                </div>
 
-              <div
-                onPointerDown={(event) => handleHeightPointerDown(event, 1)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute bottom-0 left-10 right-10 flex h-5 translate-y-1/2 cursor-ns-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
-              >
-                <SideHandle orientation="vertical" />
-              </div>
-            </>
-          ) : null}
+                <div
+                  onPointerDown={(event) => handleHeightPointerDown(event, 1)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  onPointerCancel={handlePointerEnd}
+                  onLostPointerCapture={handlePointerEnd}
+                  className="absolute bottom-0 left-10 right-10 flex h-5 translate-y-1/2 cursor-ns-resize items-center justify-center opacity-0 transition group-hover:opacity-100"
+                >
+                  <SideHandle orientation="vertical" />
+                </div>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

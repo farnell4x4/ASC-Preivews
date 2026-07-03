@@ -7,6 +7,7 @@ type PhoneMockupProps = {
   device: DeviceKind;
   renderScale?: number;
   cornerScale?: number;
+  frameWidthPx?: number;
 };
 
 export function PhoneMockup({
@@ -14,9 +15,12 @@ export function PhoneMockup({
   device,
   renderScale = 1,
   cornerScale = 1,
+  frameWidthPx,
 }: PhoneMockupProps) {
   const isTablet = device === "tablet";
   const scalePx = (value: number) => `${value * renderScale}px`;
+  const frameInset = isTablet ? 0.022 : 0.027;
+  const screenInset = frameWidthPx ? `${frameWidthPx * frameInset}px` : `${frameInset * 100}%`;
 
   const bodyRadius = isTablet ? scalePx(72 * cornerScale) : scalePx(96 * cornerScale);
   const screenRadius = isTablet ? scalePx(54 * cornerScale) : scalePx(78 * cornerScale);
@@ -29,7 +33,6 @@ export function PhoneMockup({
           width: "100%",
           height: "100%",
           borderRadius: bodyRadius,
-          padding: isTablet ? "2.2%" : "2.7%",
           boxShadow: `0 ${scalePx(30)} ${scalePx(56)} rgba(15,23,42,0.18)`,
         }}
       >
@@ -74,9 +77,11 @@ export function PhoneMockup({
 
         {/* Screen */}
         <div
-          className="relative h-full w-full overflow-hidden bg-white"
+          className="absolute bg-white"
           style={{
+            inset: screenInset,
             borderRadius: screenRadius,
+            overflow: "hidden",
           }}
         >
           {screenshotUrl ? (
@@ -85,9 +90,6 @@ export function PhoneMockup({
               src={screenshotUrl}
               alt="Uploaded app screenshot preview"
               className="block h-full w-full object-cover"
-              style={{
-                borderRadius: screenRadius,
-              }}
               draggable={false}
             />
           ) : (
@@ -112,7 +114,7 @@ export function PhoneMockup({
 
               <div className="space-y-[5%]">
                 <div
-                  className="bg-white/14 p-[8%] backdrop-blur"
+                  className="bg-white/14 p-[8%]"
                   style={{ borderRadius: scalePx(24) }}
                 >
                   <div className="font-semibold" style={{ fontSize: scalePx(22) }}>
@@ -156,15 +158,6 @@ export function PhoneMockup({
             />
           )}
 
-          {/* Subtle glass */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              borderRadius: screenRadius,
-              background:
-                "linear-gradient(180deg,rgba(255,255,255,0.14),transparent 24%,transparent 62%,rgba(255,255,255,0.05) 100%)",
-            }}
-          />
         </div>
 
         {/* Outer edge highlight */}

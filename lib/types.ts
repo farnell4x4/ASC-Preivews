@@ -1,5 +1,6 @@
 export type TextPosition = "top" | "bottom";
 export type DeviceKind = "phone" | "tablet";
+export type BackgroundMode = "solid" | "linear" | "advanced" | "radial";
 
 export type CanvasPreset = {
   id: string;
@@ -21,6 +22,10 @@ export type EditorState = {
   fontSize: number;
   textColor: string;
   backgroundColor: string;
+  backgroundMode: BackgroundMode;
+  backgroundAccentColor: string;
+  backgroundAngle: number;
+  backgroundFlip: boolean;
   phoneScale: number;
   phoneX: number;
   phoneY: number;
