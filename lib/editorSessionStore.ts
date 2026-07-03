@@ -6,12 +6,12 @@ const SESSION_STORE_NAME = "editorSessions";
 const META_STORE_NAME = "editorMeta";
 const ACTIVE_SESSION_KEY = "activeSessionId";
 const LOADED_SESSION_IDS_KEY = "loadedSessionIds";
+const PREVIEW_ZOOM_KEY = "previewZoom";
 
 export const DEFAULT_SESSION_ID = "default";
 
 export type PersistedEditorSession = {
   state: EditorState;
-  previewZoom: number;
 };
 
 export type SavedEditorSessionSummary = {
@@ -51,7 +51,7 @@ export async function loadEditorSession(sessionId: string) {
 
     request.onsuccess = () => {
       const record = request.result as SessionRecord | undefined;
-      resolve(record ? { state: record.state, previewZoom: record.previewZoom } : null);
+      resolve(record ? { state: record.state } : null);
     };
 
     request.onerror = () => {
@@ -69,7 +69,6 @@ export async function saveEditorSession(sessionId: string, session: PersistedEdi
     const request = store.put({
       id: sessionId,
       state: session.state,
-      previewZoom: session.previewZoom,
       displayName: getSessionDisplayName(sessionId, session.state.uploadedScreenshotUrl),
       updatedAt: Date.now(),
     } satisfies SessionRecord);
@@ -191,6 +190,50 @@ export async function saveLoadedSessionIds(sessionIds: string[]) {
     request.onsuccess = () => resolve();
     request.onerror = () => {
       reject(request.error ?? new Error("Unable to save editor canvas order."));
+    };
+  });
+}
+
+export async function loadPreviewZoom() {
+  const database = await openDatabase();
+
+  return new Promise<number | null>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readonly");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.get(PREVIEW_ZOOM_KEY);
+
+    request.onsuccess = () => {
+      const record = request.result as MetaRecord | undefined;
+
+      if (!record?.value) {
+        resolve(null);
+        return;
+      }
+
+      const parsed = Number(record.value);
+      resolve(Number.isFinite(parsed) ? parsed : null);
+    };
+
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to load preview zoom."));
+    };
+  });
+}
+
+export async function savePreviewZoom(previewZoom: number) {
+  const database = await openDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.put({
+      key: PREVIEW_ZOOM_KEY,
+      value: String(previewZoom),
+    } satisfies MetaRecord);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to save preview zoom."));
     };
   });
 }

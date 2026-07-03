@@ -15,9 +15,11 @@ import {
   loadActiveSessionId,
   loadLoadedSessionIds,
   loadEditorSession,
+  loadPreviewZoom,
   saveActiveSessionId,
   saveLoadedSessionIds,
   saveEditorSession,
+  savePreviewZoom,
 } from "@/lib/editorSessionStore";
 import { exportStateAsPng } from "@/lib/exportImage";
 import type { EditorState } from "@/lib/types";
@@ -51,6 +53,27 @@ const initialState: EditorState = {
   textSpacing: 28,
 };
 
+/*
+UI naming glossary:
+- Editor: the full screenshot-making screen.
+- Saved Files: the collapsible section of previously saved items.
+- Saved file card: one item inside Saved Files.
+- Preview controls: the control row above the live preview area.
+- Preview panel: the large section that contains the live preview(s).
+- Canvas: the screenshot composition area rendered by ScreenshotCanvas.
+- Canvas strip: the horizontal row of loaded canvas cards.
+- Canvas card: one preview item in the strip.
+- Active canvas card: the canvas card currently being edited.
+- Inactive canvas card: any other loaded canvas card in the strip.
+- File: one uploaded image plus its saved layout/settings.
+- Session: the saved state for one file.
+- Active session: the file/session currently loaded in the editor.
+- Loaded sessions: the sessions currently shown in the canvas strip.
+- Default draft: the non-file fallback editing state.
+- Phone mockup: the phone frame inside the canvas.
+- Text box: the draggable headline/subtitle area inside the canvas.
+- Background sheet: the modal used for background options.
+*/
 export function Editor() {
   const [state, setState] = useState<EditorState>(initialState);
   const [isExporting, setIsExporting] = useState(false);
@@ -134,20 +157,18 @@ export function Editor() {
       ...initialState,
       ...savedSession.state,
     });
-    setPreviewZoom(savedSession.previewZoom);
   };
 
   const resetToDefaultDraft = () => {
     setActiveSessionId(DEFAULT_SESSION_ID);
     setState(initialState);
-    setPreviewZoom(1);
   };
 
   useEffect(() => {
     let isCancelled = false;
 
-    void Promise.all([loadActiveSessionId(), loadLoadedSessionIds()])
-      .then(async ([savedActiveSessionId, savedLoadedSessionIds]) => {
+    void Promise.all([loadActiveSessionId(), loadLoadedSessionIds(), loadPreviewZoom()])
+      .then(async ([savedActiveSessionId, savedLoadedSessionIds, savedPreviewZoom]) => {
         const nextSessionId = savedActiveSessionId ?? DEFAULT_SESSION_ID;
         const savedSession = await loadEditorSession(nextSessionId);
 
@@ -159,6 +180,9 @@ export function Editor() {
         setLoadedSessionIds(
           savedLoadedSessionIds.filter((sessionId, index, allIds) => allIds.indexOf(sessionId) === index),
         );
+        if (savedPreviewZoom !== null) {
+          setPreviewZoom(savedPreviewZoom);
+        }
 
         if (!savedSession) {
           return;
@@ -176,7 +200,6 @@ export function Editor() {
           ...initialState,
           ...savedSession.state,
         });
-        setPreviewZoom(savedSession.previewZoom);
         setStatusMessage(
           nextSessionId === DEFAULT_SESSION_ID
             ? "Restored your last editing session."
@@ -207,9 +230,10 @@ export function Editor() {
 
     const timeoutId = window.setTimeout(() => {
       void Promise.all([
-        saveEditorSession(activeSessionId, { state, previewZoom }),
+        saveEditorSession(activeSessionId, { state }),
         saveActiveSessionId(activeSessionId),
         saveLoadedSessionIds(loadedSessionIds),
+        savePreviewZoom(previewZoom),
       ]).then(() => refreshSavedSessions());
     }, 250);
 
@@ -318,7 +342,6 @@ export function Editor() {
     try {
       setIsSessionReady(false);
       const baseState = state;
-      const basePreviewZoom = previewZoom;
       const processedFiles = await Promise.all(
         files.map(async (file) => {
           const sessionId = getFileSessionId(file);
@@ -349,17 +372,14 @@ export function Editor() {
                   await readImageDimensions(nextUrl),
                 ),
               };
-          const nextPreviewZoom = savedSession?.previewZoom ?? basePreviewZoom;
 
           await saveEditorSession(sessionId, {
             state: nextState,
-            previewZoom: nextPreviewZoom,
           });
 
           return {
             sessionId,
             state: nextState,
-            previewZoom: nextPreviewZoom,
           };
         }),
       );
@@ -375,7 +395,6 @@ export function Editor() {
         return nextIds.filter((sessionId, index) => nextIds.indexOf(sessionId) === index);
       });
       setActiveSessionId(nextActiveFile.sessionId);
-      setPreviewZoom(nextActiveFile.previewZoom);
       setState(nextActiveFile.state);
       await refreshSavedSessions();
       setStatusMessage(
@@ -590,8 +609,8 @@ export function Editor() {
         ) : null}
 
         <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
-          <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
-            <div className="space-y-4">
+          <div className="space-y-4">
+            <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(420px,1.35fr)_minmax(280px,0.95fr)] xl:items-start">
               <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
                 <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
                   Preview
@@ -633,7 +652,7 @@ export function Editor() {
                 <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
                   Text & Color
                 </div>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                <div className="grid gap-4 md:grid-cols-2">
                   <label className="block">
                     <div className="mb-2 text-sm font-medium text-slate-700">
                       Font size: {state.fontSize}px
@@ -722,7 +741,7 @@ export function Editor() {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+              <div className="grid gap-4 md:grid-cols-2">
                 <label className="block">
                   <div className="mb-2 text-sm font-medium text-slate-700">
                     ASC preset
