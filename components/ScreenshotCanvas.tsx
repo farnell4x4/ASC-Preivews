@@ -403,7 +403,8 @@ export function ScreenshotCanvas({
               renderScale={renderScale}
               cornerScale={timelineState.phoneCornerScale}
               frameWidthPx={phoneWidthPx}
-              showVideoControls={interactive}
+              showVideoControls={false}
+              previewFrameTime={timelineState.mediaType === "video" ? currentTime : undefined}
               onVideoTimeUpdate={onVideoTimeUpdate}
             />
 

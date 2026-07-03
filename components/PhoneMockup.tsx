@@ -1,5 +1,4 @@
-// components/PhoneMockup.tsx
-
+import { useEffect, useRef } from "react";
 import type { DeviceKind } from "@/lib/types";
 
 type PhoneMockupProps = {
@@ -10,6 +9,7 @@ type PhoneMockupProps = {
   cornerScale?: number;
   frameWidthPx?: number;
   showVideoControls?: boolean;
+  previewFrameTime?: number;
   onVideoTimeUpdate?: (currentTime: number, duration: number) => void;
 };
 
@@ -21,8 +21,11 @@ export function PhoneMockup({
   cornerScale = 1,
   frameWidthPx,
   showVideoControls = true,
+  previewFrameTime,
   onVideoTimeUpdate,
 }: PhoneMockupProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const desiredFrameTimeRef = useRef(previewFrameTime);
   const isTablet = device === "tablet";
   const scalePx = (value: number) => `${value * renderScale}px`;
   const frameInset = isTablet ? 0.022 : 0.027;
@@ -30,6 +33,18 @@ export function PhoneMockup({
 
   const bodyRadius = isTablet ? scalePx(72 * cornerScale) : scalePx(96 * cornerScale);
   const screenRadius = isTablet ? scalePx(54 * cornerScale) : scalePx(78 * cornerScale);
+
+  desiredFrameTimeRef.current = previewFrameTime;
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video || previewFrameTime === undefined || !Number.isFinite(previewFrameTime)) {
+      return;
+    }
+
+    syncPreviewFrame(video, previewFrameTime);
+  }, [previewFrameTime, videoUrl]);
 
   return (
     <div className="relative h-full w-full">
@@ -92,23 +107,26 @@ export function PhoneMockup({
         >
           {videoUrl ? (
             <video
+              ref={videoRef}
               src={videoUrl}
               className="block h-full w-full object-cover"
               controls={showVideoControls}
               muted
               playsInline
-              onLoadedMetadata={(event) =>
-                onVideoTimeUpdate?.(
-                  event.currentTarget.currentTime,
-                  event.currentTarget.duration,
-                )
-              }
-              onTimeUpdate={(event) =>
-                onVideoTimeUpdate?.(
-                  event.currentTarget.currentTime,
-                  event.currentTarget.duration,
-                )
-              }
+              preload="auto"
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                syncPreviewFrame(video, desiredFrameTimeRef.current);
+                onVideoTimeUpdate?.(video.currentTime, video.duration);
+              }}
+              onLoadedData={(event) => {
+                const video = event.currentTarget;
+                syncPreviewFrame(video, desiredFrameTimeRef.current);
+              }}
+              onSeeked={(event) => {
+                const video = event.currentTarget;
+                onVideoTimeUpdate?.(video.currentTime, video.duration);
+              }}
             />
           ) : screenshotUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -200,4 +218,20 @@ export function PhoneMockup({
       </div>
     </div>
   );
+}
+
+function syncPreviewFrame(video: HTMLVideoElement, previewFrameTime?: number) {
+  if (previewFrameTime === undefined || !Number.isFinite(previewFrameTime)) {
+    return;
+  }
+
+  const duration = Number.isFinite(video.duration) ? video.duration : previewFrameTime;
+  const nextTime = Math.max(0, Math.min(previewFrameTime, duration || previewFrameTime));
+
+  if (Math.abs(video.currentTime - nextTime) < 0.01) {
+    return;
+  }
+
+  video.pause();
+  video.currentTime = nextTime;
 }

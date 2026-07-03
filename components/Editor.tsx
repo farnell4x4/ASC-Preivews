@@ -58,6 +58,8 @@ const initialState: EditorState = {
   textSpacing: 28,
 };
 
+const CUE_GAP_SECONDS = 0.001;
+
 /*
 UI naming glossary:
 - Editor: the full screenshot-making screen.
@@ -309,6 +311,10 @@ export function Editor() {
     setPreviewVideoTime(cue.startTime);
   };
 
+  const handlePreviewFrameChange = (nextTime: number) => {
+    setPreviewVideoTime(Math.max(0, nextTime));
+  };
+
   const updateSelectedCue = <K extends keyof TimelineTextCue>(
     key: K,
     value: TimelineTextCue[K],
@@ -334,20 +340,31 @@ export function Editor() {
 
   const addTimelineCue = () => {
     const duration = previewVideoDuration || 6;
-    const startTime = Math.min(Math.max(0, previewVideoTime), Math.max(0, duration - 0.5));
-    const cue = normalizeCue({
-      id: createTimelineCueId(),
-      startTime,
-      endTime: Math.min(duration, startTime + 2),
-      headline: "",
-      subtitle: "",
-    });
+    const cueId = createTimelineCueId();
 
-    setState((current) => ({
-      ...current,
-      timelineTextCues: [...current.timelineTextCues, cue].sort((a, b) => a.startTime - b.startTime),
-    }));
-    setSelectedCueId(cue.id);
+    setState((current) => {
+      const latestCueEnd = current.timelineTextCues.reduce(
+        (latestEnd, cue) => Math.max(latestEnd, cue.endTime),
+        0,
+      );
+      const startTime = Math.min(
+        Math.max(previewVideoTime, latestCueEnd + CUE_GAP_SECONDS),
+        Math.max(0, duration - 0.1),
+      );
+      const cue = normalizeCue({
+        id: cueId,
+        startTime,
+        endTime: Math.min(duration, startTime + 2),
+        headline: "",
+        subtitle: "",
+      });
+
+      return {
+        ...current,
+        timelineTextCues: [...current.timelineTextCues, cue].sort((a, b) => a.startTime - b.startTime),
+      };
+    });
+    setSelectedCueId(cueId);
   };
 
   const deleteSelectedCue = () => {
@@ -928,6 +945,26 @@ export function Editor() {
                     </button>
                   </div>
 
+                  <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-slate-700">Preview frame</span>
+                      <span className="text-slate-500">{formatSeconds(previewVideoTime)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(previewVideoDuration, 0)}
+                      step={0.1}
+                      value={Math.min(previewVideoTime, Math.max(previewVideoDuration, 0))}
+                      onChange={(event) => handlePreviewFrameChange(Number(event.target.value))}
+                      disabled={previewVideoDuration <= 0}
+                      className="w-full"
+                    />
+                    <div className="mt-2 text-sm text-slate-500">
+                      Scrub to the frame you want to line up, then place or edit cues.
+                    </div>
+                  </div>
+
                   {state.timelineTextCues.length > 0 ? (
                     <div className="space-y-4">
                       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1008,7 +1045,7 @@ export function Editor() {
                   ) : (
                     <div className="space-y-4">
                       <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
-                        Play or scrub the video, then add a cue where the text should change.
+                        Scrub to the frame you want, then add a cue where the text should change.
                       </div>
                     </div>
                   )}
@@ -1398,8 +1435,8 @@ function normalizeCue(cue: TimelineTextCue) {
 
   return {
     ...cue,
-    startTime: roundToTenths(startTime),
-    endTime: roundToTenths(endTime),
+    startTime: roundToThousandths(startTime),
+    endTime: roundToThousandths(endTime),
   };
 }
 
@@ -1421,6 +1458,10 @@ function formatSeconds(value: number) {
 
 function roundToTenths(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function roundToThousandths(value: number) {
+  return Math.round(value * 1000) / 1000;
 }
 
 function clamp(value: number, min: number, max: number) {
