@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ExportButton } from "@/components/ExportButton";
+import { PhoneMockup } from "@/components/PhoneMockup";
 import { ScreenshotCanvas } from "@/components/ScreenshotCanvas";
 import { getBackgroundModeLabel, getBackgroundStyle } from "@/lib/backgroundStyle";
 import { defaultPreset, canvasPresets } from "@/lib/canvasPresets";
 import {
   DEFAULT_SESSION_ID,
+  deleteEditorSession,
   getFileSessionId,
   listSavedEditorSessions,
   loadActiveSessionId,
@@ -279,6 +281,23 @@ export function Editor() {
     }
   };
 
+  const handleDeleteSavedSession = async (sessionId: string) => {
+    try {
+      await deleteEditorSession(sessionId);
+
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(DEFAULT_SESSION_ID);
+        setState(initialState);
+        setPreviewZoom(1);
+      }
+
+      refreshSavedSessions();
+      setStatusMessage("Deleted saved file.");
+    } catch {
+      setStatusMessage("Unable to delete that saved file.");
+    }
+  };
+
   return (
     <main className="min-h-screen px-4 py-4 lg:px-6">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
@@ -327,10 +346,17 @@ export function Editor() {
             {isSavedFilesOpen ? (
               <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
                 {savedSessions.map((session) => (
-                  <button
+                  <div
                     key={session.id}
-                    type="button"
                     onClick={() => void handleSelectSavedSession(session.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void handleSelectSavedSession(session.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     className={`group w-[136px] shrink-0 rounded-[1.4rem] border bg-white p-2 text-left transition ${
                       activeSessionId === session.id
                         ? "border-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.14)]"
@@ -338,24 +364,40 @@ export function Editor() {
                     }`}
                   >
                     <div className="relative aspect-[9/19.5] overflow-hidden rounded-[1rem] bg-slate-100">
-                      {session.previewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={session.previewUrl}
-                          alt={session.displayName}
-                          className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                          draggable={false}
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-xs font-medium text-slate-400">
-                          No preview
+                      <button
+                        type="button"
+                        aria-label={`Delete ${session.displayName}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDeleteSavedSession(session.id);
+                        }}
+                        className="absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                          <path d="M6 12h12" />
+                        </svg>
+                      </button>
+
+                      <div
+                        className="flex h-full w-full items-center justify-center p-2 transition group-hover:scale-[1.02]"
+                        style={getBackgroundStyle(session.state)}
+                      >
+                        <div className="h-full max-h-[220px] w-[66%]">
+                          <PhoneMockup
+                            screenshotUrl={session.previewUrl}
+                            device={
+                              (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
+                                defaultPreset).device
+                            }
+                            cornerScale={session.state.phoneCornerScale}
+                          />
                         </div>
-                      )}
+                      </div>
                     </div>
                     <div className="mt-3 truncate text-sm font-semibold text-slate-800">
                       {session.displayName}
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             ) : null}

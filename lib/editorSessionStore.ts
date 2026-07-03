@@ -18,6 +18,7 @@ export type SavedEditorSessionSummary = {
   displayName: string;
   previewUrl: string | null;
   updatedAt: number;
+  state: EditorState;
 };
 
 type SessionRecord = PersistedEditorSession & {
@@ -96,6 +97,7 @@ export async function listSavedEditorSessions() {
           displayName: record.displayName ?? "Saved file",
           previewUrl: record.state.uploadedScreenshotUrl,
           updatedAt: record.updatedAt ?? 0,
+          state: record.state,
         }));
 
       resolve(records);
@@ -140,6 +142,36 @@ export async function saveActiveSessionId(sessionId: string) {
     request.onsuccess = () => resolve();
     request.onerror = () => {
       reject(request.error ?? new Error("Unable to save active editor session."));
+    };
+  });
+}
+
+export async function deleteEditorSession(sessionId: string) {
+  const database = await openDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction([SESSION_STORE_NAME, META_STORE_NAME], "readwrite");
+    const sessionStore = transaction.objectStore(SESSION_STORE_NAME);
+    const metaStore = transaction.objectStore(META_STORE_NAME);
+
+    sessionStore.delete(sessionId);
+    metaStore.get(ACTIVE_SESSION_KEY).onsuccess = (event) => {
+      const record = (event.target as IDBRequest<MetaRecord | undefined>).result;
+
+      if (record?.value === sessionId) {
+        metaStore.put({
+          key: ACTIVE_SESSION_KEY,
+          value: DEFAULT_SESSION_ID,
+        } satisfies MetaRecord);
+      }
+    };
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => {
+      reject(transaction.error ?? new Error("Unable to delete editor session."));
+    };
+    transaction.onabort = () => {
+      reject(transaction.error ?? new Error("Unable to delete editor session."));
     };
   });
 }
