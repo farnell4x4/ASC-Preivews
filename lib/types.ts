@@ -15,6 +15,8 @@ export type EditorState = {
   headline: string;
   subtitle: string;
   textPosition: TextPosition;
+  textBoxX: number;
+  textBoxWidth: number;
   fontSize: number;
   textColor: string;
   backgroundColor: string;

@@ -15,6 +15,8 @@ const initialState: EditorState = {
   headline: "Track what matters",
   subtitle: "Simple. Clean. Focused.",
   textPosition: "top",
+  textBoxX: 4,
+  textBoxWidth: 112,
   fontSize: 144,
   textColor: "#0f172a",
   backgroundColor: "#f8fafc",
@@ -32,37 +34,51 @@ export function Editor() {
   const [state, setState] = useState<EditorState>(initialState);
   const [isExporting, setIsExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
+  const [previewZoom, setPreviewZoom] = useState(1);
   const exportRef = useRef<HTMLDivElement>(null);
-  const previewFrameRef = useRef<HTMLDivElement>(null);
-  const [previewWidth, setPreviewWidth] = useState(420);
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+  const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
+  const [fitHeight, setFitHeight] = useState(720);
 
   const selectedPreset = useMemo(
     () => canvasPresets.find((preset) => preset.id === state.selectedPresetId) ?? defaultPreset,
     [state.selectedPresetId],
   );
-  const previewScale = previewWidth / selectedPreset.width;
+  const fitScale = Math.min(
+    previewViewportWidth / selectedPreset.width,
+    fitHeight / selectedPreset.height,
+  );
+  const previewScale = fitScale * previewZoom;
+  const previewWidth = selectedPreset.width * previewScale;
+  const previewHeight = selectedPreset.height * previewScale;
 
   useEffect(() => {
-    const node = previewFrameRef.current;
+    const node = previewViewportRef.current;
 
     if (!node) {
       return;
     }
 
-    const updateWidth = () => {
-      setPreviewWidth(node.getBoundingClientRect().width || 420);
+    const updatePreviewMetrics = () => {
+      const rect = node.getBoundingClientRect();
+      const nextWidth = node.clientWidth || 420;
+      const availableHeight = window.innerHeight - rect.top - 32;
+      setPreviewViewportWidth(nextWidth);
+      setFitHeight(Math.max(availableHeight, 720));
     };
 
-    updateWidth();
+    updatePreviewMetrics();
 
     const observer = new ResizeObserver(() => {
-      updateWidth();
+      updatePreviewMetrics();
     });
 
     observer.observe(node);
+    window.addEventListener("resize", updatePreviewMetrics);
 
     return () => {
       observer.disconnect();
+      window.removeEventListener("resize", updatePreviewMetrics);
     };
   }, [selectedPreset.id]);
 
@@ -80,7 +96,14 @@ export function Editor() {
 
     try {
       const nextUrl = await readFileAsDataUrl(file);
-      handleStateChange("uploadedScreenshotUrl", nextUrl);
+      const dimensions = await readImageDimensions(nextUrl);
+      const autoFitState = getAutoFitPhoneLayout(state, selectedPreset, dimensions);
+
+      setState((current) => ({
+        ...current,
+        uploadedScreenshotUrl: nextUrl,
+        ...autoFitState,
+      }));
       setStatusMessage(`Loaded ${file.name}.`);
     } catch {
       setStatusMessage("Unable to read that image file.");
@@ -145,33 +168,108 @@ export function Editor() {
           </div>
         </header>
 
-        <section className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)_280px]">
+        <section className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
           <aside>
             <EditorControls
               state={state}
               onStateChange={handleStateChange}
-              onUpload={handleUpload}
             />
           </aside>
 
           <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
-            <div className="mb-4 flex items-center justify-between px-1">
-              <div>
-                <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Preview
+            <div className="mb-4 px-1">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Preview
+                  </div>
+                  <div className="mt-1 text-sm text-slate-500">
+                    Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
+                  </div>
                 </div>
-                <div className="mt-1 text-sm text-slate-500">
-                  Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
+
+                <div className="flex flex-wrap items-center gap-3 xl:justify-end">
+                  <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                    {[1.5, 1, 0.75, 0.5].map((zoom) => (
+                      <button
+                        key={zoom}
+                        type="button"
+                        onClick={() => setPreviewZoom(zoom)}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          previewZoom === zoom
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        {Math.round(zoom * 100)}%
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="w-[160px]">
+                    <ExportButton isExporting={isExporting} onExport={handleExport} />
+                  </div>
                 </div>
+              </div>
+
+              <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-end">
+                <label className="w-full xl:max-w-[260px]">
+                  <div className="mb-2 text-sm font-medium text-slate-700">
+                    ASC preset
+                  </div>
+                  <select
+                    value={state.selectedPresetId}
+                    onChange={(event) => handleStateChange("selectedPresetId", event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none ring-0 transition focus:border-blue-400"
+                  >
+                    {canvasPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label} ({preset.width}x{preset.height})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="w-full xl:max-w-[220px]">
+                  <div className="mb-2 text-sm font-medium text-slate-700">
+                    Choose file
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg"
+                    onChange={(event) => handleUpload(event.target.files?.[0] ?? null)}
+                    className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+                  />
+                </label>
+
+                <label className="w-full xl:max-w-[220px]">
+                  <div className="mb-2 text-sm font-medium text-slate-700">
+                    Size: {state.phoneScale.toFixed(2)}x
+                  </div>
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={3}
+                    step={0.01}
+                    value={Math.min(state.phoneScale, 3)}
+                    onChange={(event) => handleStateChange("phoneScale", Number(event.target.value))}
+                    className="w-full"
+                  />
+                </label>
               </div>
             </div>
 
-            <div className="flex min-h-[720px] items-center justify-center rounded-[1.75rem] bg-[radial-gradient(circle_at_top,#dbeafe_0%,#f8fafc_35%,#fff_100%)] p-4">
+            <div
+              ref={previewViewportRef}
+              className="flex items-start justify-center rounded-[1.75rem] bg-[radial-gradient(circle_at_top,#dbeafe_0%,#f8fafc_35%,#fff_100%)] p-4"
+              style={{
+                minHeight: previewHeight + 32,
+              }}
+            >
               <div
-                ref={previewFrameRef}
-                className="relative w-full max-w-[420px] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
-                style={{
-                  aspectRatio: `${selectedPreset.width} / ${selectedPreset.height}`,
+className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"                style={{
+                  width: previewWidth,
+                  height: previewHeight,
                 }}
               >
                 <ScreenshotCanvas
@@ -184,34 +282,6 @@ export function Editor() {
               </div>
             </div>
           </section>
-
-          <aside className="space-y-4">
-            <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-panel">
-              <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Export
-              </div>
-              <div className="mt-3 text-sm leading-6 text-slate-600">
-                Downloads a PNG at the exact preset size instead of the smaller preview size.
-              </div>
-              <div className="mt-5">
-                <ExportButton isExporting={isExporting} onExport={handleExport} />
-              </div>
-              <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                Filename: asc-screenshot-{selectedPreset.width}x{selectedPreset.height}.png
-              </div>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-panel">
-              <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Tips
-              </div>
-              <ul className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
-                <li>Use tall screenshots so the phone crop feels intentional.</li>
-                <li>Keep headlines short for cleaner App Store compositions.</li>
-                <li>Switch presets before export to generate each required size.</li>
-              </ul>
-            </div>
-          </aside>
         </section>
       </div>
 
@@ -249,4 +319,75 @@ function readFileAsDataUrl(file: File) {
 
     reader.readAsDataURL(file);
   });
+}
+
+function readImageDimensions(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    };
+
+    image.onerror = () => {
+      reject(new Error("Unable to read image dimensions."));
+    };
+
+    image.src = src;
+  });
+}
+
+function getAutoFitPhoneLayout(
+  state: EditorState,
+  preset: { width: number; height: number; device: "phone" | "tablet" },
+  image: { width: number; height: number },
+) {
+  const basePhoneWidthPercent = preset.device === "tablet" ? 0.56 : 0.62;
+  const deviceAspect = preset.device === "tablet" ? 0.78 : 0.49;
+  const screenshotAspect = image.width / image.height;
+  const widthScale = 1;
+  const heightScale = clamp(deviceAspect / screenshotAspect, 0.82, 1.22);
+
+  const topPad = preset.height * 0.072;
+  const bottomPad = preset.height * 0.078;
+  const titleHeight = state.fontSize * 1.02;
+  const subtitleHeight = Math.max(state.fontSize * 0.36, 34) * 1.2;
+  const textGap = state.textSpacing;
+  const textBlockHeight = titleHeight + subtitleHeight + textGap + preset.height * 0.05;
+  const horizontalPadding = preset.width * 0.08;
+  const maxPhoneWidth = (preset.width - horizontalPadding * 2) * (preset.device === "tablet" ? 0.88 : 0.8);
+  const maxPhoneHeight = Math.max(
+    preset.height * 0.42,
+    preset.height - textBlockHeight - topPad - bottomPad - preset.height * 0.06,
+  );
+
+  const basePhoneWidth = preset.width * basePhoneWidthPercent * widthScale;
+  const basePhoneHeight = (preset.width * basePhoneWidthPercent * heightScale) / deviceAspect;
+  const fittedScale = Math.min(maxPhoneWidth / basePhoneWidth, maxPhoneHeight / basePhoneHeight);
+  const phoneScale = clamp(fittedScale, 0.45, 1.6);
+  const renderedPhoneHeight = basePhoneHeight * phoneScale;
+  const phoneY =
+    state.textPosition === "top"
+      ? ((topPad + textBlockHeight + (preset.height - renderedPhoneHeight - topPad - textBlockHeight) / 2 + renderedPhoneHeight / 2) /
+          preset.height) *
+        100
+      : (((preset.height - bottomPad - textBlockHeight - renderedPhoneHeight) / 2 + renderedPhoneHeight / 2) /
+          preset.height) *
+        100;
+
+  return {
+    phoneScale,
+    phoneWidthScale: widthScale,
+    phoneHeightScale: heightScale,
+    phoneX: 50,
+    phoneY: clamp(phoneY, 18, 82),
+    phoneRotation: 0,
+  };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
