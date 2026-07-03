@@ -7,6 +7,7 @@ const META_STORE_NAME = "editorMeta";
 const ACTIVE_SESSION_KEY = "activeSessionId";
 const LOADED_SESSION_IDS_KEY = "loadedSessionIds";
 const PREVIEW_ZOOM_KEY = "previewZoom";
+const CONTROL_PANEL_POSITION_KEY = "controlPanelPosition";
 
 export const DEFAULT_SESSION_ID = "default";
 
@@ -32,6 +33,11 @@ type SessionRecord = PersistedEditorSession & {
 type MetaRecord = {
   key: string;
   value: string;
+};
+
+export type ControlPanelPosition = {
+  x: number;
+  y: number;
 };
 
 export function getFileSessionId(file: File) {
@@ -240,6 +246,59 @@ export async function savePreviewZoom(previewZoom: number) {
     request.onsuccess = () => resolve();
     request.onerror = () => {
       reject(request.error ?? new Error("Unable to save preview zoom."));
+    };
+  });
+}
+
+export async function loadControlPanelPosition() {
+  const database = await openDatabase();
+
+  return new Promise<ControlPanelPosition | null>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readonly");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.get(CONTROL_PANEL_POSITION_KEY);
+
+    request.onsuccess = () => {
+      const record = request.result as MetaRecord | undefined;
+
+      if (!record?.value) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(record.value) as Partial<ControlPanelPosition>;
+        if (typeof parsed.x === "number" && Number.isFinite(parsed.x) && typeof parsed.y === "number" && Number.isFinite(parsed.y)) {
+          resolve({ x: parsed.x, y: parsed.y });
+          return;
+        }
+      } catch {
+        // Fall through to null for invalid persisted values.
+      }
+
+      resolve(null);
+    };
+
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to load toolbar sheet position."));
+    };
+  });
+}
+
+export async function saveControlPanelPosition(position: ControlPanelPosition) {
+  const database = await openDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.put({
+      key: CONTROL_PANEL_POSITION_KEY,
+      value: JSON.stringify(position),
+    } satisfies MetaRecord);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to save toolbar sheet position."));
     };
   });
 }

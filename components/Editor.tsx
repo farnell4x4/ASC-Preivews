@@ -8,15 +8,18 @@ import { ScreenshotCanvas } from "@/components/ScreenshotCanvas";
 import { getBackgroundModeLabel, getBackgroundStyle } from "@/lib/backgroundStyle";
 import { defaultPreset, canvasPresets } from "@/lib/canvasPresets";
 import {
+  type ControlPanelPosition,
   DEFAULT_SESSION_ID,
   deleteEditorSession,
   getFileSessionId,
   listSavedEditorSessions,
   loadActiveSessionId,
+  loadControlPanelPosition,
   loadLoadedSessionIds,
   loadEditorSession,
   loadPreviewZoom,
   saveActiveSessionId,
+  saveControlPanelPosition,
   saveLoadedSessionIds,
   saveEditorSession,
   savePreviewZoom,
@@ -59,6 +62,8 @@ const initialState: EditorState = {
 };
 
 const CUE_GAP_SECONDS = 0.001;
+const CONTROL_PANEL_MARGIN = 16;
+const CONTROL_PANEL_DEFAULT_TOP = 96;
 
 /*
 UI naming glossary:
@@ -70,6 +75,7 @@ UI naming glossary:
 - Canvas: the screenshot composition area rendered by ScreenshotCanvas.
 - Canvas strip: the horizontal row of loaded canvas cards.
 - Canvas card: one preview item in the strip.
+that di
 - Active canvas card: the canvas card currently being edited.
 - Inactive canvas card: any other loaded canvas card in the strip.
 - File: one uploaded image plus its saved layout/settings.
@@ -97,7 +103,11 @@ export function Editor() {
   const [previewVideoTime, setPreviewVideoTime] = useState(0);
   const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
+  const [controlPanelPosition, setControlPanelPosition] = useState<ControlPanelPosition | null>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
+  const controlPanelRef = useRef<HTMLDivElement>(null);
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const [isDraggingControlPanel, setIsDraggingControlPanel] = useState(false);
   const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
   const [fitHeight, setFitHeight] = useState(720);
 
@@ -189,8 +199,8 @@ export function Editor() {
   useEffect(() => {
     let isCancelled = false;
 
-    void Promise.all([loadActiveSessionId(), loadLoadedSessionIds(), loadPreviewZoom()])
-      .then(async ([savedActiveSessionId, savedLoadedSessionIds, savedPreviewZoom]) => {
+    void Promise.all([loadActiveSessionId(), loadLoadedSessionIds(), loadPreviewZoom(), loadControlPanelPosition()])
+      .then(async ([savedActiveSessionId, savedLoadedSessionIds, savedPreviewZoom, savedControlPanelPosition]) => {
         const nextSessionId = savedActiveSessionId ?? DEFAULT_SESSION_ID;
         const savedSession = await loadEditorSession(nextSessionId);
 
@@ -204,6 +214,9 @@ export function Editor() {
         );
         if (savedPreviewZoom !== null) {
           setPreviewZoom(savedPreviewZoom);
+        }
+        if (savedControlPanelPosition) {
+          setControlPanelPosition(savedControlPanelPosition);
         }
 
         if (!savedSession) {
@@ -264,6 +277,91 @@ export function Editor() {
       window.clearTimeout(timeoutId);
     };
   }, [activeSessionId, isSessionReady, loadedSessionIds, previewZoom, state]);
+
+  useEffect(() => {
+    if (!isSessionReady || !controlPanelPosition) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void saveControlPanelPosition(controlPanelPosition);
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [controlPanelPosition, isSessionReady]);
+
+  useEffect(() => {
+    if (!activeControlPanel) {
+      return;
+    }
+
+    const updatePosition = () => {
+      const panelNode = controlPanelRef.current;
+
+      if (!panelNode) {
+        return;
+      }
+
+      const nextPosition = clampControlPanelPosition(
+        controlPanelPosition ?? getDefaultControlPanelPosition(panelNode.offsetWidth),
+        panelNode.offsetWidth,
+        panelNode.offsetHeight,
+      );
+
+      setControlPanelPosition((current) =>
+        current && current.x === nextPosition.x && current.y === nextPosition.y ? current : nextPosition,
+      );
+    };
+
+    const frameId = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [activeControlPanel, controlPanelPosition]);
+
+  useEffect(() => {
+    if (!isDraggingControlPanel) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const panelNode = controlPanelRef.current;
+      const dragOffset = dragOffsetRef.current;
+
+      if (!panelNode || !dragOffset) {
+        return;
+      }
+
+      setControlPanelPosition(
+        clampControlPanelPosition(
+          {
+            x: event.clientX - dragOffset.x,
+            y: event.clientY - dragOffset.y,
+          },
+          panelNode.offsetWidth,
+          panelNode.offsetHeight,
+        ),
+      );
+    };
+
+    const finishDragging = () => {
+      dragOffsetRef.current = null;
+      setIsDraggingControlPanel(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishDragging);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishDragging);
+    };
+  }, [isDraggingControlPanel]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -669,6 +767,29 @@ export function Editor() {
     }
   };
 
+  const handleControlPanelDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    if ((event.target as HTMLElement).closest("button, input, select, textarea, label, a")) {
+      return;
+    }
+
+    const panelNode = controlPanelRef.current;
+
+    if (!panelNode) {
+      return;
+    }
+
+    const rect = panelNode.getBoundingClientRect();
+    dragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    setIsDraggingControlPanel(true);
+  };
+
   return (
     <main className="min-h-screen px-4 py-4 lg:px-6">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
@@ -778,9 +899,12 @@ export function Editor() {
                               ? "cursor-grabbing opacity-70"
                               : "cursor-grab hover:-translate-y-0.5"
                         }`}
+                        style={{
+                          width: itemPreset.width * itemScale,
+                        }}
                       >
                         <div className="mb-3 flex items-center justify-between gap-3 px-1">
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-semibold text-slate-900">
                               {item.displayName}
                             </div>
@@ -789,7 +913,7 @@ export function Editor() {
                             </div>
                           </div>
                           {item.id === activeSessionId ? (
-                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                            <span className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
                               Active
                             </span>
                           ) : null}
@@ -798,7 +922,6 @@ export function Editor() {
                         <div
                           className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
                           style={{
-                            width: itemPreset.width * itemScale,
                             height: itemPreset.height * itemScale,
                           }}
                         >
@@ -850,8 +973,18 @@ export function Editor() {
             className="absolute inset-0 cursor-default"
             onClick={() => setActiveControlPanel(null)}
           />
-          <div className="relative z-10 w-full max-w-[1180px] rounded-[2rem] border border-white/70 bg-white/95 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.18)] backdrop-blur">
-            <div className="flex items-start justify-between gap-4">
+          <div
+            ref={controlPanelRef}
+            className="fixed z-10 w-full max-w-[1180px] rounded-[2rem] border border-white/70 bg-white/95 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.18)] backdrop-blur"
+            style={{
+              left: controlPanelPosition?.x ?? CONTROL_PANEL_MARGIN,
+              top: controlPanelPosition?.y ?? CONTROL_PANEL_DEFAULT_TOP,
+            }}
+          >
+            <div
+              onPointerDown={handleControlPanelDragStart}
+              className={`flex items-start justify-between gap-4 ${isDraggingControlPanel ? "cursor-grabbing" : "cursor-grab"}`}
+            >
               <div>
                 <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
                   {activeControlPanel === "files"
@@ -1595,6 +1728,28 @@ function roundToThousandths(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getDefaultControlPanelPosition(panelWidth: number): ControlPanelPosition {
+  const viewportWidth = typeof window === "undefined" ? panelWidth + CONTROL_PANEL_MARGIN * 2 : window.innerWidth;
+  return {
+    x: Math.max((viewportWidth - panelWidth) / 2, CONTROL_PANEL_MARGIN),
+    y: CONTROL_PANEL_DEFAULT_TOP,
+  };
+}
+
+function clampControlPanelPosition(
+  position: ControlPanelPosition,
+  panelWidth: number,
+  panelHeight: number,
+): ControlPanelPosition {
+  const viewportWidth = typeof window === "undefined" ? panelWidth + CONTROL_PANEL_MARGIN * 2 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? panelHeight + CONTROL_PANEL_MARGIN * 2 : window.innerHeight;
+
+  return {
+    x: clamp(position.x, CONTROL_PANEL_MARGIN, Math.max(CONTROL_PANEL_MARGIN, viewportWidth - panelWidth - CONTROL_PANEL_MARGIN)),
+    y: clamp(position.y, CONTROL_PANEL_MARGIN, Math.max(CONTROL_PANEL_MARGIN, viewportHeight - panelHeight - CONTROL_PANEL_MARGIN)),
+  };
 }
 
 function downloadBlob(blob: Blob, filename: string) {
