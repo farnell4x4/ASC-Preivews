@@ -26,6 +26,7 @@ export type EditorState = {
   backgroundAccentColor: string;
   backgroundAngle: number;
   backgroundFlip: boolean;
+  backgroundSpread: number;
   phoneScale: number;
   phoneX: number;
   phoneY: number;
@@ -33,5 +34,6 @@ export type EditorState = {
   phoneWidthScale: number;
   phoneHeightScale: number;
   phoneCornerScale: number;
+  titleLineHeight: number;
   textSpacing: number;
 };

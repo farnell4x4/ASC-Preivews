@@ -35,6 +35,7 @@ const initialState: EditorState = {
   backgroundAccentColor: "#000000",
   backgroundAngle: 180,
   backgroundFlip: false,
+  backgroundSpread: 36,
   phoneScale: 0.92,
   phoneX: 50,
   phoneY: 52.5,
@@ -42,6 +43,7 @@ const initialState: EditorState = {
   phoneWidthScale: 1,
   phoneHeightScale: 1,
   phoneCornerScale: 1,
+  titleLineHeight: 1.08,
   textSpacing: 28,
 };
 
@@ -415,6 +417,21 @@ export function Editor() {
 
                   <label className="block">
                     <div className="mb-2 text-sm font-medium text-slate-700">
+                      Title line spacing: {state.titleLineHeight.toFixed(2)}x
+                    </div>
+                    <input
+                      type="range"
+                      min={0.9}
+                      max={1.4}
+                      step={0.01}
+                      value={state.titleLineHeight}
+                      onChange={(event) => handleStateChange("titleLineHeight", Number(event.target.value))}
+                      className="w-full"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">
                       Text spacing: {state.textSpacing}px
                     </div>
                     <input
@@ -630,6 +647,24 @@ export function Editor() {
                   </div>
                 )}
 
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-slate-700">
+                    Spread: {state.backgroundSpread}%
+                  </div>
+                  <input
+                    type="range"
+                    min={-100}
+                    max={100}
+                    step={1}
+                    value={state.backgroundSpread}
+                    onChange={(event) => handleStateChange("backgroundSpread", Number(event.target.value))}
+                    className="w-full"
+                  />
+                  <div className="mt-2 text-sm text-slate-500">
+                    Lower values pull the first color back sooner. Higher values let it travel farther.
+                  </div>
+                </label>
+
                 <button
                   type="button"
                   onClick={() => handleStateChange("backgroundFlip", !state.backgroundFlip)}
@@ -715,7 +750,7 @@ function getAutoFitPhoneLayout(
 
   const topPad = preset.height * 0.072;
   const bottomPad = preset.height * 0.078;
-  const titleHeight = state.fontSize * 1.02;
+  const titleHeight = state.fontSize * state.titleLineHeight;
   const subtitleHeight = Math.max(state.fontSize * 0.36, 34) * 1.2;
   const textGap = state.textSpacing;
   const textBlockHeight = titleHeight + subtitleHeight + textGap + preset.height * 0.05;

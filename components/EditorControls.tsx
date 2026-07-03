@@ -57,6 +57,17 @@ export function EditorControls({ state, onStateChange }: EditorControlsProps) {
               className="w-full"
             />
           </ControlGroup>
+          <ControlGroup label={`Title line spacing: ${state.titleLineHeight.toFixed(2)}x`}>
+            <input
+              type="range"
+              min={0.9}
+              max={1.4}
+              step={0.01}
+              value={state.titleLineHeight}
+              onChange={(event) => onStateChange("titleLineHeight", Number(event.target.value))}
+              className="w-full"
+            />
+          </ControlGroup>
           <ControlGroup label={`Text spacing: ${state.textSpacing}px`}>
             <input
               type="range"

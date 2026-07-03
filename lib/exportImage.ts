@@ -40,6 +40,7 @@ function drawBackground(
     | "backgroundAccentColor"
     | "backgroundAngle"
     | "backgroundFlip"
+    | "backgroundSpread"
   >,
 ) {
   context.save();
@@ -66,7 +67,12 @@ function drawBackground(
     const [center, edge] = state.backgroundFlip
       ? [state.backgroundAccentColor, state.backgroundColor]
       : [state.backgroundColor, state.backgroundAccentColor];
-    gradient.addColorStop(0, center);
+    if (state.backgroundSpread >= 0) {
+      gradient.addColorStop(0, center);
+      gradient.addColorStop(state.backgroundSpread / 100, center);
+    } else {
+      gradient.addColorStop(0, mixHexColors(center, edge, getOffsetBlendAmount(state.backgroundSpread)));
+    }
     gradient.addColorStop(1, edge);
   } else {
     const radians = ((state.backgroundAngle - 90) * Math.PI) / 180;
@@ -86,14 +92,23 @@ function drawBackground(
       const [start, end] = state.backgroundFlip
         ? [state.backgroundAccentColor, state.backgroundColor]
         : [state.backgroundColor, state.backgroundAccentColor];
-      gradient.addColorStop(0, start);
+      if (state.backgroundSpread >= 0) {
+        gradient.addColorStop(0, start);
+        gradient.addColorStop(state.backgroundSpread / 100, start);
+      } else {
+        gradient.addColorStop(0, mixHexColors(start, end, getOffsetBlendAmount(state.backgroundSpread)));
+      }
       gradient.addColorStop(1, end);
     } else {
       const [edge, center] = state.backgroundFlip
         ? [state.backgroundAccentColor, state.backgroundColor]
         : [state.backgroundColor, state.backgroundAccentColor];
+      const shoulder = getAdvancedShoulder(state.backgroundSpread) / 100;
+      const midpointBlend = mixHexColors(edge, center, 0.5);
       gradient.addColorStop(0, edge);
+      gradient.addColorStop(shoulder, midpointBlend);
       gradient.addColorStop(0.5, center);
+      gradient.addColorStop(1 - shoulder, midpointBlend);
       gradient.addColorStop(1, edge);
     }
   }
@@ -124,10 +139,8 @@ function drawText(
     `400 ${layout.subtitleSize}px ${FONT_FAMILY}`,
     0,
   );
-  const titleLineHeight = layout.titleSize * 1.08;
   const subtitleLineHeight = layout.subtitleSize * 1.2;
-  const titleBlockHeight = titleLines.length * titleLineHeight;
-  const subtitleBlockTop = textY + titleBlockHeight + layout.gapSize;
+  const titleBlockHeight = titleLines.length * layout.titleLineHeight;
   const subtitleBlockHeight = subtitleLines.length * subtitleLineHeight;
   const totalTextHeight = titleBlockHeight + layout.gapSize + subtitleBlockHeight;
   const startY = layout.isTop ? textY : textY - totalTextHeight;
@@ -142,7 +155,7 @@ function drawText(
     titleLines,
     layout.textBoxLeftPx,
     startY,
-    titleLineHeight,
+    layout.titleLineHeight,
     -0.04 * layout.titleSize,
   );
 
@@ -447,4 +460,49 @@ async function verifyDimensions(blob: Blob, width: number, height: number) {
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+function getOffsetBlendAmount(spread: number) {
+  const startOffset = spread / 100;
+  return Math.min(1, Math.max(0, -startOffset / (1 - startOffset)));
+}
+
+function getAdvancedShoulder(spread: number) {
+  const normalized = (spread + 100) / 200;
+  return 45 - normalized * 35;
+}
+
+function mixHexColors(start: string, end: string, amount: number) {
+  const startRgb = parseHexColor(start);
+  const endRgb = parseHexColor(end);
+
+  if (!startRgb || !endRgb) {
+    return start;
+  }
+
+  const mixChannel = (startChannel: number, endChannel: number) =>
+    Math.round(startChannel + (endChannel - startChannel) * amount);
+
+  return `rgb(${mixChannel(startRgb.r, endRgb.r)}, ${mixChannel(startRgb.g, endRgb.g)}, ${mixChannel(startRgb.b, endRgb.b)})`;
+}
+
+function parseHexColor(value: string) {
+  const normalized = value.trim();
+  const hex = normalized.startsWith("#") ? normalized.slice(1) : normalized;
+
+  if (hex.length !== 6) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(hex, 16);
+
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+
+  return {
+    r: (parsed >> 16) & 255,
+    g: (parsed >> 8) & 255,
+    b: parsed & 255,
+  };
 }

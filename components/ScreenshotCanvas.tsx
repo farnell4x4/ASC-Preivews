@@ -4,6 +4,9 @@ import { getBackgroundStyle } from "@/lib/backgroundStyle";
 import { computeCanvasLayout } from "@/lib/canvasLayout";
 import type { CanvasPreset, EditorState } from "@/lib/types";
 
+const EXPORT_FONT_FAMILY =
+  'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
 type ScreenshotCanvasProps = {
   preset: CanvasPreset;
   state: EditorState;
@@ -60,6 +63,7 @@ export function ScreenshotCanvas({
     textBoxOffsetYPx,
     textBoxWidthPx,
     titleSize,
+    titleLineHeight,
     subtitleSize,
     gapSize,
     basePhoneWidthPx,
@@ -290,7 +294,7 @@ export function ScreenshotCanvas({
             onPointerUp={handlePointerEnd}
             onPointerCancel={handlePointerEnd}
             onLostPointerCapture={handlePointerEnd}
-            className="mb-2 inline-flex cursor-grab touch-none items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 shadow-sm active:cursor-grabbing"
+            className="absolute -top-12 left-0 z-50 inline-flex cursor-grab touch-none items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 shadow-sm active:cursor-grabbing"
           >
             Text
           </div>
@@ -307,13 +311,15 @@ export function ScreenshotCanvas({
             className="block w-full resize-none overflow-hidden bg-transparent outline-none"
             style={{
               fontSize: titleSize,
-              lineHeight: 1.08,
+              lineHeight: `${titleLineHeight}px`,
               letterSpacing: "-0.04em",
+              fontFamily: EXPORT_FONT_FAMILY,
               color: state.textColor,
               margin: 0,
               fontWeight: 700,
               width: "100%",
               padding: 0,
+              border: "none",
               pointerEvents: interactive ? "auto" : "none",
             }}
           />
@@ -328,12 +334,14 @@ export function ScreenshotCanvas({
             style={{
               fontSize: subtitleSize,
               lineHeight: 1.2,
+              fontFamily: EXPORT_FONT_FAMILY,
               color: state.textColor,
               opacity: 0.84,
               margin: 0,
               marginTop: gapSize,
               width: "100%",
               padding: 0,
+              border: "none",
               pointerEvents: interactive ? "auto" : "none",
             }}
           />

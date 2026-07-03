@@ -14,6 +14,7 @@ export function computeCanvasLayout(
   const textBoxOffsetYPx = (state.textBoxY / 100) * canvasHeightPx;
   const textBoxWidthPx = (state.textBoxWidth / 100) * canvasWidthPx;
   const titleSize = state.fontSize * renderScale;
+  const titleLineHeight = titleSize * state.titleLineHeight;
   const subtitleSize = Math.max(state.fontSize * 0.36, 34) * renderScale;
   const gapSize = state.textSpacing * renderScale;
   const basePhoneWidthPercent = preset.device === "tablet" ? 56 : 62;
@@ -33,6 +34,7 @@ export function computeCanvasLayout(
     textBoxOffsetYPx,
     textBoxWidthPx,
     titleSize,
+    titleLineHeight,
     subtitleSize,
     gapSize,
     basePhoneWidthPx,
