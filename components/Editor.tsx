@@ -412,19 +412,42 @@ export function Editor() {
 
     try {
       const blob = await exportStateAsPng(selectedPreset, state);
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = `asc-screenshot-${selectedPreset.width}x${selectedPreset.height}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-      }, 1000);
+      downloadBlob(
+        blob,
+        `asc-screenshot-${selectedPreset.width}x${selectedPreset.height}.png`,
+      );
       setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} PNG.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to export PNG.";
+      setStatusMessage(message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportAll = async () => {
+    if (loadedPreviewItems.length === 0) {
+      setStatusMessage("Load files into the canvas strip to export all.");
+      return;
+    }
+
+    setIsExporting(true);
+    setStatusMessage(`Rendering ${loadedPreviewItems.length} PNGs...`);
+
+    try {
+      for (const item of loadedPreviewItems) {
+        const itemPreset =
+          canvasPresets.find((preset) => preset.id === item.state.selectedPresetId) ?? defaultPreset;
+        const blob = await exportStateAsPng(itemPreset, item.state);
+        downloadBlob(
+          blob,
+          `${slugifyFilename(item.displayName)}-${itemPreset.width}x${itemPreset.height}.png`,
+        );
+      }
+
+      setStatusMessage(`Exported ${loadedPreviewItems.length} loaded PNGs.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to export all PNGs.";
       setStatusMessage(message);
     } finally {
       setIsExporting(false);
@@ -594,8 +617,15 @@ export function Editor() {
                   ))}
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-4 space-y-3">
                   <ExportButton isExporting={isExporting} onExport={handleExport} />
+                  {loadedPreviewItems.length > 0 ? (
+                    <ExportButton
+                      isExporting={isExporting}
+                      onExport={handleExportAll}
+                      label={`Export All Loaded (${loadedPreviewItems.length})`}
+                    />
+                  ) : null}
                 </div>
               </div>
 
@@ -1076,6 +1106,29 @@ function getAutoFitPhoneLayout(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(blobUrl);
+  }, 1000);
+}
+
+function slugifyFilename(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "asc-screenshot";
 }
 
 function getDisplayNameFromSessionId(sessionId: string) {

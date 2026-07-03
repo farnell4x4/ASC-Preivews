@@ -3,6 +3,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+URL="http://localhost:3000"
 
 PIDS="$(pgrep -f "next dev" || true)"
 
@@ -16,6 +17,12 @@ fi
 
 echo "Clearing Next.js build cache..."
 rm -rf "$ROOT_DIR/.next"
+
+echo "Opening Safari..."
+(
+  sleep 3
+  open -a Safari "$URL"
+) &
 
 echo "Starting local dev server..."
 cd "$ROOT_DIR"

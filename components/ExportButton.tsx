@@ -3,9 +3,14 @@
 type ExportButtonProps = {
   isExporting: boolean;
   onExport: () => void;
+  label?: string;
 };
 
-export function ExportButton({ isExporting, onExport }: ExportButtonProps) {
+export function ExportButton({
+  isExporting,
+  onExport,
+  label = "Export PNG",
+}: ExportButtonProps) {
   return (
     <button
       type="button"
@@ -13,7 +18,7 @@ export function ExportButton({ isExporting, onExport }: ExportButtonProps) {
       disabled={isExporting}
       className="w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-500 disabled:cursor-wait disabled:bg-blue-300"
     >
-      {isExporting ? "Exporting PNG..." : "Export PNG"}
+      {isExporting ? "Exporting PNG..." : label}
     </button>
   );
 }
