@@ -304,6 +304,11 @@ export function Editor() {
     setPreviewVideoDuration(Number.isFinite(duration) ? duration : 0);
   };
 
+  const handleSelectCue = (cue: TimelineTextCue) => {
+    setSelectedCueId(cue.id);
+    setPreviewVideoTime(cue.startTime);
+  };
+
   const updateSelectedCue = <K extends keyof TimelineTextCue>(
     key: K,
     value: TimelineTextCue[K],
@@ -930,7 +935,7 @@ export function Editor() {
                           <button
                             key={cue.id}
                             type="button"
-                            onClick={() => setSelectedCueId(cue.id)}
+                            onClick={() => handleSelectCue(cue)}
                             className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
                               selectedCue?.id === cue.id
                                 ? "bg-slate-900 text-white"
