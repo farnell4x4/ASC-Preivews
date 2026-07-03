@@ -55,15 +55,7 @@ export async function exportStateAsVideo(preset: CanvasPreset, state: EditorStat
   recorder.start();
 
   try {
-    const frameDuration = 1 / EXPORT_FPS;
-    const totalFrames = Math.max(1, Math.ceil(duration * EXPORT_FPS));
-
-    for (let frame = 0; frame <= totalFrames; frame += 1) {
-      const currentTime = Math.min(frame * frameDuration, duration);
-      await seekVideo(video, currentTime);
-      drawEditorFrame(context, preset, state, video, currentTime);
-      await wait(frameDuration * 1000);
-    }
+    await renderRealtimeVideoExport(video, context, preset, state, duration);
   } finally {
     video.pause();
     recorder.stop();
@@ -146,6 +138,55 @@ function createExportVideoElement(src: string) {
   });
 }
 
+async function renderRealtimeVideoExport(
+  video: HTMLVideoElement,
+  context: CanvasRenderingContext2D,
+  preset: CanvasPreset,
+  state: EditorState,
+  duration: number,
+) {
+  video.playbackRate = 1;
+  await seekVideo(video, 0);
+  drawEditorFrame(context, preset, state, video, 0);
+
+  const playbackDone = new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, (duration + 2) * 1000);
+
+    const handleEnded = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Unable to render the full video export."));
+    };
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("error", handleError);
+    };
+
+    video.addEventListener("ended", handleEnded, { once: true });
+    video.addEventListener("error", handleError, { once: true });
+  });
+
+  const drawPlaybackFrame = () => {
+    drawEditorFrame(context, preset, state, video, Math.min(video.currentTime, duration));
+
+    if (!video.paused && !video.ended) {
+      window.requestAnimationFrame(drawPlaybackFrame);
+    }
+  };
+
+  await video.play();
+  drawPlaybackFrame();
+  await playbackDone;
+  drawEditorFrame(context, preset, state, video, duration);
+}
+
 function seekVideo(video: HTMLVideoElement, currentTime: number) {
   return new Promise<void>((resolve, reject) => {
     const targetTime = Math.min(Math.max(currentTime, 0), getSafeDuration(video.duration));
@@ -181,8 +222,4 @@ function getSafeDuration(duration: number) {
 function getVideoBitrate(preset: CanvasPreset) {
   const pixels = preset.width * preset.height;
   return Math.max(4_000_000, Math.min(20_000_000, pixels * 2.2));
-}
-
-function wait(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
