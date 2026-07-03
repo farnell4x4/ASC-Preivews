@@ -82,19 +82,18 @@ UI naming glossary:
 - Background sheet: the modal used for background options.
 */
 export function Editor() {
-  type ControlPanel = "files" | "text" | "preview" | "timeline";
+  type ControlPanel = "files" | "format" | "preview" | "timeline" | "export" | "background";
 
   const [state, setState] = useState<EditorState>(initialState);
   const [isExporting, setIsExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
   const [previewZoom, setPreviewZoom] = useState(1);
-  const [isBackgroundSheetOpen, setIsBackgroundSheetOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState(DEFAULT_SESSION_ID);
   const [isSessionReady, setIsSessionReady] = useState(false);
   const [savedSessions, setSavedSessions] = useState<SavedEditorSessionSummary[]>([]);
   const [loadedSessionIds, setLoadedSessionIds] = useState<string[]>([]);
   const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
-  const [activeControlPanel, setActiveControlPanel] = useState<ControlPanel>("files");
+  const [activeControlPanel, setActiveControlPanel] = useState<ControlPanel | null>(null);
   const [previewVideoTime, setPreviewVideoTime] = useState(0);
   const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
@@ -265,12 +264,6 @@ export function Editor() {
       window.clearTimeout(timeoutId);
     };
   }, [activeSessionId, isSessionReady, loadedSessionIds, previewZoom, state]);
-
-  useEffect(() => {
-    if (state.mediaType !== "video" && activeControlPanel === "timeline") {
-      setActiveControlPanel("files");
-    }
-  }, [activeControlPanel, state.mediaType]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -703,439 +696,38 @@ export function Editor() {
 
         <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
           <div className="space-y-4">
-            <div className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.96))] p-3 shadow-[0_16px_50px_rgba(15,23,42,0.08)]">
+            <div className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-3 shadow-[0_16px_50px_rgba(15,23,42,0.08)]">
               <div className="flex flex-wrap items-center gap-2">
                 {[
                   { id: "files", label: "Files", meta: `${savedSessions.length} saved` },
-                  { id: "text", label: "Text", meta: "Typography and color" },
+                  { id: "format", label: "Format", meta: "Text and spacing" },
                   { id: "preview", label: "Preview", meta: `${selectedPreset.width}x${selectedPreset.height}` },
-                  ...(state.mediaType === "video"
-                    ? [{ id: "timeline", label: "Timeline", meta: `${state.timelineTextCues.length} cues` }]
-                    : []),
+                  {
+                    id: "timeline",
+                    label: "Timeline",
+                    meta: state.mediaType === "video" ? `${state.timelineTextCues.length} cues` : "Image only",
+                  },
+                  { id: "export", label: "Export", meta: loadedPreviewItems.length > 0 ? `${loadedPreviewItems.length} loaded` : "Single export" },
+                  { id: "background", label: "Background", meta: getBackgroundModeLabel(state.backgroundMode) },
                 ].map((panel) => (
                   <button
                     key={panel.id}
                     type="button"
-                    onClick={() => setActiveControlPanel(panel.id as ControlPanel)}
-                    className={`rounded-full border px-4 py-2.5 text-left text-sm transition ${
+                    onClick={() =>
+                      setActiveControlPanel((current) => (current === panel.id ? null : (panel.id as ControlPanel)))
+                    }
+                    className={`rounded-full border px-4 py-2 text-left text-sm transition ${
                       activeControlPanel === panel.id
                         ? "border-slate-900 bg-slate-900 text-white shadow-[0_10px_24px_rgba(15,23,42,0.16)]"
                         : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                     }`}
                   >
                     <span className="block font-semibold">{panel.label}</span>
-                    <span className={`block text-xs ${activeControlPanel === panel.id ? "text-slate-300" : "text-slate-500"}`}>
+                    <span className={`block text-[11px] ${activeControlPanel === panel.id ? "text-slate-300" : "text-slate-500"}`}>
                       {panel.meta}
                     </span>
                   </button>
                 ))}
-              </div>
-
-              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                {activeControlPanel === "files" ? (
-                  <>
-                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Source
-                      </div>
-                      <label className="mt-3 block">
-                        <div className="mb-2 text-sm font-medium text-slate-700">
-                          Choose file
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/jpg,video/mp4,video/webm,video/quicktime,video/*"
-                          multiple
-                          onChange={(event) => {
-                            void handleUpload(event.target.files);
-                            event.currentTarget.value = "";
-                          }}
-                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
-                        />
-                        <div className="mt-2 text-sm text-slate-500">
-                          Add screenshots or videos. Each file keeps its own saved layout locally.
-                        </div>
-                      </label>
-                    </div>
-
-                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Preset
-                      </div>
-                      <label className="mt-3 block">
-                        <div className="mb-2 text-sm font-medium text-slate-700">
-                          ASC preset
-                        </div>
-                        <select
-                          value={state.selectedPresetId}
-                          onChange={(event) => handleStateChange("selectedPresetId", event.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none ring-0 transition focus:border-blue-400"
-                        >
-                          {canvasPresets.map((preset) => (
-                            <option key={preset.id} value={preset.id}>
-                              {preset.label} ({preset.width}x{preset.height})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-
-                    {savedSessions.length > 0 ? (
-                      savedSessions.map((session) => (
-                        <div
-                          key={session.id}
-                          onClick={() => void handleSelectSavedSession(session.id)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              void handleSelectSavedSession(session.id);
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          className={`group w-[112px] shrink-0 rounded-[1.2rem] border bg-white p-2 text-left transition ${
-                            activeSessionId === session.id
-                              ? "border-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.14)]"
-                              : "border-slate-200 hover:border-slate-300 hover:shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
-                          }`}
-                        >
-                          <div className="relative aspect-[9/19.5] overflow-hidden rounded-[0.9rem] bg-slate-100">
-                            <button
-                              type="button"
-                              aria-label={`Delete ${session.displayName}`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handleDeleteSavedSession(session.id);
-                              }}
-                              className="absolute right-1.5 top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                                <path d="M6 12h12" />
-                              </svg>
-                            </button>
-
-                            <div
-                              className="flex h-full w-full items-center justify-center p-2 transition group-hover:scale-[1.02]"
-                              style={getBackgroundStyle(session.state)}
-                            >
-                              <div className="h-full max-h-[160px] w-[64%]">
-                                <PhoneMockup
-                                  screenshotUrl={session.mediaType === "image" ? session.previewUrl : null}
-                                  videoUrl={session.mediaType === "video" ? session.previewUrl : null}
-                                  device={
-                                    (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
-                                      defaultPreset).device
-                                  }
-                                  cornerScale={session.state.phoneCornerScale}
-                                  showVideoControls={false}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div className="mt-2 truncate text-xs font-semibold text-slate-800">
-                            {session.displayName}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="min-w-[300px] rounded-[1.5rem] border border-dashed border-slate-300 bg-white px-5 py-6 text-sm text-slate-500">
-                        Saved files will appear here after you load media into the editor.
-                      </div>
-                    )}
-                  </>
-                ) : null}
-
-                {activeControlPanel === "text" ? (
-                  <>
-                    <div className="min-w-[240px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Type
-                      </div>
-                      <label className="block">
-                        <div className="mb-2 text-sm font-medium text-slate-700">
-                          Font size: {state.fontSize}px
-                        </div>
-                        <input
-                          type="range"
-                          min={92}
-                          max={192}
-                          step={2}
-                          value={state.fontSize}
-                          onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
-                          className="w-full"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="min-w-[240px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Spacing
-                      </div>
-                      <div className="space-y-4">
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Title line spacing: {state.titleLineHeight.toFixed(2)}x
-                          </div>
-                          <input
-                            type="range"
-                            min={0.9}
-                            max={1.4}
-                            step={0.01}
-                            value={state.titleLineHeight}
-                            onChange={(event) => handleStateChange("titleLineHeight", Number(event.target.value))}
-                            className="w-full"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Text spacing: {state.textSpacing}px
-                          </div>
-                          <input
-                            type="range"
-                            min={18}
-                            max={72}
-                            step={2}
-                            value={state.textSpacing}
-                            onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
-                            className="w-full"
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="min-w-[240px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Color
-                      </div>
-                      <div className="space-y-4">
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Text color
-                          </div>
-                          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                            <input
-                              type="color"
-                              value={state.textColor}
-                              onChange={(event) => handleStateChange("textColor", event.target.value)}
-                              className="h-11 w-11 cursor-pointer rounded-full"
-                            />
-                            <span className="text-sm text-slate-600">{state.textColor}</span>
-                          </div>
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Background color
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsBackgroundSheetOpen(true)}
-                            className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-slate-300"
-                          >
-                            <span
-                              className="h-11 w-11 rounded-full border border-slate-200 shadow-inner"
-                              style={backgroundButtonStyle}
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-medium text-slate-700">
-                                {getBackgroundModeLabel(state.backgroundMode)}
-                              </span>
-                              <span className="block truncate text-sm text-slate-500">
-                                {state.backgroundMode === "solid"
-                                  ? state.backgroundColor
-                                  : `${state.backgroundColor} -> ${state.backgroundAccentColor}`}
-                              </span>
-                            </span>
-                          </button>
-                        </label>
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-
-                {activeControlPanel === "preview" ? (
-                  <>
-                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Preview
-                      </div>
-                      <div className="mt-1 text-sm text-slate-500">
-                        Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
-                      </div>
-                      <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1 shadow-sm">
-                        {[1.5, 1, 0.75, 0.5].map((zoom) => (
-                          <button
-                            key={zoom}
-                            type="button"
-                            onClick={() => setPreviewZoom(zoom)}
-                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                              previewZoom === zoom
-                                ? "bg-slate-900 text-white"
-                                : "text-slate-600 hover:bg-white"
-                            }`}
-                          >
-                            {Math.round(zoom * 100)}%
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="min-w-[260px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Export
-                      </div>
-                      <div className="mt-4 space-y-3">
-                        <ExportButton
-                          isExporting={isExporting}
-                          onExport={handleExport}
-                          label={state.mediaType === "video" ? "Export Video" : "Export PNG"}
-                        />
-                        {loadedPreviewItems.length > 0 ? (
-                          <ExportButton
-                            isExporting={isExporting}
-                            onExport={handleExportAll}
-                            label={`Export All Loaded (${loadedPreviewItems.length})`}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-
-                {activeControlPanel === "timeline" && state.mediaType === "video" ? (
-                  <>
-                    <div className="min-w-[280px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            Timeline
-                          </div>
-                          <div className="mt-1 text-sm text-slate-500">
-                            {formatSeconds(previewVideoTime)} / {formatSeconds(previewVideoDuration)}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={addTimelineCue}
-                          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
-                        >
-                          Add cue
-                        </button>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                          <span className="font-medium text-slate-700">Preview frame</span>
-                          <span className="text-slate-500">{formatSeconds(previewVideoTime)}</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(previewVideoDuration, 0)}
-                          step={0.1}
-                          value={Math.min(previewVideoTime, Math.max(previewVideoDuration, 0))}
-                          onChange={(event) => handlePreviewFrameChange(Number(event.target.value))}
-                          disabled={previewVideoDuration <= 0}
-                          className="w-full"
-                        />
-                        <div className="mt-2 text-sm text-slate-500">
-                          Scrub to the frame you want to line up, then place or edit cues.
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="min-w-[220px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Cues
-                      </div>
-                      {state.timelineTextCues.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {state.timelineTextCues.map((cue) => (
-                            <button
-                              key={cue.id}
-                              type="button"
-                              onClick={() => handleSelectCue(cue)}
-                              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                selectedCue?.id === cue.id
-                                  ? "bg-slate-900 text-white"
-                                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                              }`}
-                            >
-                              {formatSeconds(cue.startTime)}-{formatSeconds(cue.endTime)}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                          Add a cue to start swapping text over time.
-                        </div>
-                      )}
-                    </div>
-
-                    {selectedCue ? (
-                      <div className="min-w-[360px] rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                        <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          Active cue
-                        </div>
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <label className="block">
-                            <div className="mb-2 text-sm font-medium text-slate-700">
-                              Start: {formatSeconds(selectedCue.startTime)}
-                            </div>
-                            <input
-                              type="number"
-                              min={0}
-                              max={Math.max(previewVideoDuration, selectedCue.endTime)}
-                              step={0.1}
-                              value={selectedCue.startTime}
-                              onChange={(event) => updateSelectedCue("startTime", Number(event.target.value))}
-                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                            />
-                          </label>
-                          <label className="block">
-                            <div className="mb-2 text-sm font-medium text-slate-700">
-                              End: {formatSeconds(selectedCue.endTime)}
-                            </div>
-                            <input
-                              type="number"
-                              min={0.1}
-                              max={Math.max(previewVideoDuration, selectedCue.endTime)}
-                              step={0.1}
-                              value={selectedCue.endTime}
-                              onChange={(event) => updateSelectedCue("endTime", Number(event.target.value))}
-                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                            />
-                          </label>
-                          <label className="block md:col-span-2">
-                            <div className="mb-2 text-sm font-medium text-slate-700">Headline</div>
-                            <input
-                              type="text"
-                              value={selectedCue.headline}
-                              onChange={(event) => updateSelectedCue("headline", event.target.value)}
-                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                            />
-                          </label>
-                          <label className="block md:col-span-2">
-                            <div className="mb-2 text-sm font-medium text-slate-700">Subtitle</div>
-                            <input
-                              type="text"
-                              value={selectedCue.subtitle}
-                              onChange={(event) => updateSelectedCue("subtitle", event.target.value)}
-                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={deleteSelectedCue}
-                            className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 transition hover:border-red-200"
-                          >
-                            Delete cue
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
               </div>
             </div>
 
@@ -1250,146 +842,596 @@ export function Editor() {
         </section>
       </div>
 
-      {isBackgroundSheetOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/30 p-4 md:items-center">
+      {activeControlPanel ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/20 p-4 md:items-start md:pt-24">
           <button
             type="button"
-            aria-label="Close background options"
+            aria-label="Close editor controls"
             className="absolute inset-0 cursor-default"
-            onClick={() => setIsBackgroundSheetOpen(false)}
+            onClick={() => setActiveControlPanel(null)}
           />
-          <div className="relative z-10 w-full max-w-[720px] rounded-[2rem] border border-white/70 bg-white p-5 shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
+          <div className="relative z-10 w-full max-w-[1180px] rounded-[2rem] border border-white/70 bg-white/95 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.18)] backdrop-blur">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Background
+                  {activeControlPanel === "files"
+                    ? "Files"
+                    : activeControlPanel === "format"
+                      ? "Format"
+                    : activeControlPanel === "preview"
+                      ? "Preview"
+                      : activeControlPanel === "timeline"
+                        ? "Timeline"
+                        : activeControlPanel === "export"
+                          ? "Export"
+                          : "Background"}
                 </div>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Solid and gradient fills
+                  {activeControlPanel === "files"
+                    ? "Media, presets, and saved sessions"
+                    : activeControlPanel === "format"
+                      ? "Typography and spacing"
+                    : activeControlPanel === "preview"
+                      ? "Preview scale controls"
+                      : activeControlPanel === "timeline"
+                        ? "Video cue editing"
+                        : activeControlPanel === "export"
+                          ? "Single and batch export"
+                          : "Solid and gradient fills"}
                 </h2>
               </div>
               <button
                 type="button"
-                onClick={() => setIsBackgroundSheetOpen(false)}
+                onClick={() => setActiveControlPanel(null)}
                 className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300"
               >
                 Close
               </button>
             </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-4">
-              {(["solid", "linear", "advanced", "radial"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => handleStateChange("backgroundMode", mode)}
-                  className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
-                    state.backgroundMode === mode
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
-                  }`}
-                >
-                  <div className="text-sm font-semibold">{getBackgroundModeLabel(mode)}</div>
-                  <div className={`mt-2 h-14 rounded-2xl border ${state.backgroundMode === mode ? "border-white/20" : "border-slate-200"}`} style={getBackgroundStyle({ ...state, backgroundMode: mode })} />
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <div className="mb-2 text-sm font-medium text-slate-700">
-                  Primary color
-                </div>
-                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <input
-                    type="color"
-                    value={state.backgroundColor}
-                    onChange={(event) => handleStateChange("backgroundColor", event.target.value)}
-                    className="h-11 w-11 cursor-pointer rounded-full"
-                  />
-                  <span className="text-sm text-slate-600">{state.backgroundColor}</span>
-                </div>
-              </label>
-
-              <label className="block">
-                <div className="mb-2 text-sm font-medium text-slate-700">
-                  Secondary color
-                </div>
-                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <input
-                    type="color"
-                    value={state.backgroundAccentColor}
-                    onChange={(event) => handleStateChange("backgroundAccentColor", event.target.value)}
-                    className="h-11 w-11 cursor-pointer rounded-full"
-                  />
-                  <span className="text-sm text-slate-600">{state.backgroundAccentColor}</span>
-                </div>
-              </label>
-            </div>
-
-            {state.backgroundMode !== "solid" ? (
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                {state.backgroundMode !== "radial" ? (
-                  <label className="block">
-                    <div className="mb-2 text-sm font-medium text-slate-700">
-                      Angle: {state.backgroundAngle}deg
+            <div className="mt-5 max-h-[72vh] overflow-y-auto pr-1">
+              {activeControlPanel === "files" ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]">
+                    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Source
+                      </div>
+                      <label className="mt-3 block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Choose file
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,video/mp4,video/webm,video/quicktime,video/*"
+                          multiple
+                          onChange={(event) => {
+                            void handleUpload(event.target.files);
+                            event.currentTarget.value = "";
+                          }}
+                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+                        />
+                        <div className="mt-2 text-sm text-slate-500">
+                          Add screenshots or videos. Each file keeps its own saved layout locally.
+                        </div>
+                      </label>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={360}
-                      step={5}
-                      value={state.backgroundAngle}
-                      onChange={(event) => handleStateChange("backgroundAngle", Number(event.target.value))}
-                      className="w-full"
-                    />
-                  </label>
+
+                    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Preset
+                      </div>
+                      <label className="mt-3 block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          ASC preset
+                        </div>
+                        <select
+                          value={state.selectedPresetId}
+                          onChange={(event) => handleStateChange("selectedPresetId", event.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none ring-0 transition focus:border-blue-400"
+                        >
+                          {canvasPresets.map((preset) => (
+                            <option key={preset.id} value={preset.id}>
+                              {preset.label} ({preset.width}x{preset.height})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  {savedSessions.length > 0 ? (
+                    <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                      <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Saved sessions
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+                        {savedSessions.map((session) => (
+                          <div
+                            key={session.id}
+                            onClick={() => void handleSelectSavedSession(session.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                void handleSelectSavedSession(session.id);
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            className={`group rounded-[1.2rem] border bg-white p-2 text-left transition ${
+                              activeSessionId === session.id
+                                ? "border-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.14)]"
+                                : "border-slate-200 hover:border-slate-300 hover:shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+                            }`}
+                          >
+                            <div className="relative aspect-[9/19.5] overflow-hidden rounded-[0.9rem] bg-slate-100">
+                              <button
+                                type="button"
+                                aria-label={`Delete ${session.displayName}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteSavedSession(session.id);
+                                }}
+                                className="absolute right-1.5 top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                                  <path d="M6 12h12" />
+                                </svg>
+                              </button>
+
+                              <div
+                                className="flex h-full w-full items-center justify-center p-2 transition group-hover:scale-[1.02]"
+                                style={getBackgroundStyle(session.state)}
+                              >
+                                <div className="h-full max-h-[160px] w-[64%]">
+                                  <PhoneMockup
+                                    screenshotUrl={session.mediaType === "image" ? session.previewUrl : null}
+                                    videoUrl={session.mediaType === "video" ? session.previewUrl : null}
+                                    device={
+                                      (canvasPresets.find((preset) => preset.id === session.state.selectedPresetId) ??
+                                        defaultPreset).device
+                                    }
+                                    cornerScale={session.state.phoneCornerScale}
+                                    showVideoControls={false}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-2 truncate text-xs font-semibold text-slate-800">
+                              {session.displayName}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-white px-5 py-6 text-sm text-slate-500">
+                      Saved files will appear here after you load media into the editor.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {activeControlPanel === "format" ? (
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Type
+                    </div>
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Font size: {state.fontSize}px
+                      </div>
+                      <input
+                        type="range"
+                        min={92}
+                        max={192}
+                        step={2}
+                        value={state.fontSize}
+                        onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
+                        className="w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Spacing
+                    </div>
+                    <div className="space-y-4">
+                      <label className="block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Title line spacing: {state.titleLineHeight.toFixed(2)}x
+                        </div>
+                        <input
+                          type="range"
+                          min={0.9}
+                          max={1.4}
+                          step={0.01}
+                          value={state.titleLineHeight}
+                          onChange={(event) => handleStateChange("titleLineHeight", Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Text spacing: {state.textSpacing}px
+                        </div>
+                        <input
+                          type="range"
+                          min={18}
+                          max={72}
+                          step={2}
+                          value={state.textSpacing}
+                          onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Color
+                    </div>
+                    <div className="space-y-4">
+                      <label className="block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Text color
+                        </div>
+                        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                          <input
+                            type="color"
+                            value={state.textColor}
+                            onChange={(event) => handleStateChange("textColor", event.target.value)}
+                            className="h-11 w-11 cursor-pointer rounded-full"
+                          />
+                          <span className="text-sm text-slate-600">{state.textColor}</span>
+                        </div>
+                      </label>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                        Background controls now live in the Background menu.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeControlPanel === "preview" ? (
+                <div className="grid gap-4 lg:grid-cols-[minmax(320px,0.9fr)_minmax(220px,0.7fr)]">
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Preview
+                    </div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
+                    </div>
+                    <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1 shadow-sm">
+                      {[1.5, 1, 0.75, 0.5].map((zoom) => (
+                        <button
+                          key={zoom}
+                          type="button"
+                          onClick={() => setPreviewZoom(zoom)}
+                          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                            previewZoom === zoom
+                              ? "bg-slate-900 text-white"
+                              : "text-slate-600 hover:bg-white"
+                          }`}
+                        >
+                          {Math.round(zoom * 100)}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                    Export actions now live in the Export menu.
+                  </div>
+                </div>
+              ) : null}
+
+              {activeControlPanel === "export" ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Export current
+                    </div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      Download the active canvas exactly as currently configured.
+                    </div>
+                    <div className="mt-4">
+                      <ExportButton
+                        isExporting={isExporting}
+                        onExport={handleExport}
+                        label={state.mediaType === "video" ? "Export Video" : "Export PNG"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Export loaded
+                    </div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      Export the loaded strip in its current order.
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {loadedPreviewItems.length > 0 ? (
+                        <ExportButton
+                          isExporting={isExporting}
+                          onExport={handleExportAll}
+                          label={`Export All Loaded (${loadedPreviewItems.length})`}
+                        />
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                          Load files into the canvas strip to export all.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeControlPanel === "timeline" ? (
+                state.mediaType === "video" ? (
+                  <div className="grid gap-4 lg:grid-cols-[minmax(280px,0.9fr)_minmax(220px,0.65fr)_minmax(360px,1.1fr)]">
+                    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            Timeline
+                          </div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            {formatSeconds(previewVideoTime)} / {formatSeconds(previewVideoDuration)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addTimelineCue}
+                          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                        >
+                          Add cue
+                        </button>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                          <span className="font-medium text-slate-700">Preview frame</span>
+                          <span className="text-slate-500">{formatSeconds(previewVideoTime)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={Math.max(previewVideoDuration, 0)}
+                          step={0.1}
+                          value={Math.min(previewVideoTime, Math.max(previewVideoDuration, 0))}
+                          onChange={(event) => handlePreviewFrameChange(Number(event.target.value))}
+                          disabled={previewVideoDuration <= 0}
+                          className="w-full"
+                        />
+                        <div className="mt-2 text-sm text-slate-500">
+                          Scrub to the frame you want to line up, then place or edit cues.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Cues
+                      </div>
+                      {state.timelineTextCues.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {state.timelineTextCues.map((cue) => (
+                            <button
+                              key={cue.id}
+                              type="button"
+                              onClick={() => handleSelectCue(cue)}
+                              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                selectedCue?.id === cue.id
+                                  ? "bg-slate-900 text-white"
+                                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                              }`}
+                            >
+                              {formatSeconds(cue.startTime)}-{formatSeconds(cue.endTime)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                          Add a cue to start swapping text over time.
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedCue ? (
+                      <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                        <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Active cue
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <label className="block">
+                            <div className="mb-2 text-sm font-medium text-slate-700">
+                              Start: {formatSeconds(selectedCue.startTime)}
+                            </div>
+                            <input
+                              type="number"
+                              min={0}
+                              max={Math.max(previewVideoDuration, selectedCue.endTime)}
+                              step={0.1}
+                              value={selectedCue.startTime}
+                              onChange={(event) => updateSelectedCue("startTime", Number(event.target.value))}
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-2 text-sm font-medium text-slate-700">
+                              End: {formatSeconds(selectedCue.endTime)}
+                            </div>
+                            <input
+                              type="number"
+                              min={0.1}
+                              max={Math.max(previewVideoDuration, selectedCue.endTime)}
+                              step={0.1}
+                              value={selectedCue.endTime}
+                              onChange={(event) => updateSelectedCue("endTime", Number(event.target.value))}
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block md:col-span-2">
+                            <div className="mb-2 text-sm font-medium text-slate-700">Headline</div>
+                            <input
+                              type="text"
+                              value={selectedCue.headline}
+                              onChange={(event) => updateSelectedCue("headline", event.target.value)}
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block md:col-span-2">
+                            <div className="mb-2 text-sm font-medium text-slate-700">Subtitle</div>
+                            <input
+                              type="text"
+                              value={selectedCue.subtitle}
+                              onChange={(event) => updateSelectedCue("subtitle", event.target.value)}
+                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={deleteSelectedCue}
+                            className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 transition hover:border-red-200"
+                          >
+                            Delete cue
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                    Circle gradients radiate from the center of the canvas.
+                  <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-500">
+                    Timeline controls are available when the active file is a video.
                   </div>
-                )}
+                )
+              ) : null}
 
-                <label className="block">
-                  <div className="mb-2 text-sm font-medium text-slate-700">
-                    Spread: {state.backgroundSpread}%
+              {activeControlPanel === "background" ? (
+                <div className="space-y-5">
+                  <div className="grid gap-3 md:grid-cols-4">
+                    {(["solid", "linear", "advanced", "radial"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => handleStateChange("backgroundMode", mode)}
+                        className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
+                          state.backgroundMode === mode
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold">{getBackgroundModeLabel(mode)}</div>
+                        <div className={`mt-2 h-14 rounded-2xl border ${state.backgroundMode === mode ? "border-white/20" : "border-slate-200"}`} style={getBackgroundStyle({ ...state, backgroundMode: mode })} />
+                      </button>
+                    ))}
                   </div>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    step={1}
-                    value={state.backgroundSpread}
-                    onChange={(event) => handleStateChange("backgroundSpread", Number(event.target.value))}
-                    className="w-full"
-                  />
-                  <div className="mt-2 text-sm text-slate-500">
-                    Lower values pull the first color back sooner. Higher values let it travel farther.
-                  </div>
-                </label>
 
-                <button
-                  type="button"
-                  onClick={() => handleStateChange("backgroundFlip", !state.backgroundFlip)}
-                  className={`rounded-2xl border px-4 py-3 text-left transition ${
-                    state.backgroundFlip
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
-                  }`}
-                >
-                  <div className="text-sm font-semibold">Flip inside out</div>
-                  <div className={`mt-1 text-sm ${state.backgroundFlip ? "text-white/74" : "text-slate-500"}`}>
-                    Reverse which color sits on the outside versus the inside.
-                  </div>
-                </button>
-              </div>
-            ) : null}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Primary color
+                      </div>
+                      <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <input
+                          type="color"
+                          value={state.backgroundColor}
+                          onChange={(event) => handleStateChange("backgroundColor", event.target.value)}
+                          className="h-11 w-11 cursor-pointer rounded-full"
+                        />
+                        <span className="text-sm text-slate-600">{state.backgroundColor}</span>
+                      </div>
+                    </label>
 
-            <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Preview
-              </div>
-              <div className="h-28 rounded-[1.25rem] border border-slate-200" style={backgroundButtonStyle} />
+                    <label className="block">
+                      <div className="mb-2 text-sm font-medium text-slate-700">
+                        Secondary color
+                      </div>
+                      <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <input
+                          type="color"
+                          value={state.backgroundAccentColor}
+                          onChange={(event) => handleStateChange("backgroundAccentColor", event.target.value)}
+                          className="h-11 w-11 cursor-pointer rounded-full"
+                        />
+                        <span className="text-sm text-slate-600">{state.backgroundAccentColor}</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {state.backgroundMode !== "solid" ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {state.backgroundMode !== "radial" ? (
+                        <label className="block">
+                          <div className="mb-2 text-sm font-medium text-slate-700">
+                            Angle: {state.backgroundAngle}deg
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={360}
+                            step={5}
+                            value={state.backgroundAngle}
+                            onChange={(event) => handleStateChange("backgroundAngle", Number(event.target.value))}
+                            className="w-full"
+                          />
+                        </label>
+                      ) : (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                          Circle gradients radiate from the center of the canvas.
+                        </div>
+                      )}
+
+                      <label className="block">
+                        <div className="mb-2 text-sm font-medium text-slate-700">
+                          Spread: {state.backgroundSpread}%
+                        </div>
+                        <input
+                          type="range"
+                          min={-100}
+                          max={100}
+                          step={1}
+                          value={state.backgroundSpread}
+                          onChange={(event) => handleStateChange("backgroundSpread", Number(event.target.value))}
+                          className="w-full"
+                        />
+                        <div className="mt-2 text-sm text-slate-500">
+                          Lower values pull the first color back sooner. Higher values let it travel farther.
+                        </div>
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => handleStateChange("backgroundFlip", !state.backgroundFlip)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          state.backgroundFlip
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold">Flip inside out</div>
+                        <div className={`mt-1 text-sm ${state.backgroundFlip ? "text-white/74" : "text-slate-500"}`}>
+                          Reverse which color sits on the outside versus the inside.
+                        </div>
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Preview
+                    </div>
+                    <div className="h-28 rounded-[1.25rem] border border-slate-200" style={backgroundButtonStyle} />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
