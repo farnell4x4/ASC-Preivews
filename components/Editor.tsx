@@ -334,8 +334,8 @@ export function Editor() {
       id: createTimelineCueId(),
       startTime,
       endTime: Math.min(duration, startTime + 2),
-      headline: state.headline,
-      subtitle: state.subtitle,
+      headline: "",
+      subtitle: "",
     });
 
     setState((current) => ({
@@ -925,31 +925,6 @@ export function Editor() {
 
                   {state.timelineTextCues.length > 0 ? (
                     <div className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Default headline
-                          </div>
-                          <input
-                            type="text"
-                            value={state.headline}
-                            onChange={(event) => handleStateChange("headline", event.target.value)}
-                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Default subtitle
-                          </div>
-                          <input
-                            type="text"
-                            value={state.subtitle}
-                            onChange={(event) => handleStateChange("subtitle", event.target.value)}
-                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                          />
-                        </label>
-                      </div>
-
                       <div className="flex gap-2 overflow-x-auto pb-1">
                         {state.timelineTextCues.map((cue) => (
                           <button
@@ -1027,30 +1002,6 @@ export function Editor() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Default headline
-                          </div>
-                          <input
-                            type="text"
-                            value={state.headline}
-                            onChange={(event) => handleStateChange("headline", event.target.value)}
-                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="mb-2 text-sm font-medium text-slate-700">
-                            Default subtitle
-                          </div>
-                          <input
-                            type="text"
-                            value={state.subtitle}
-                            onChange={(event) => handleStateChange("subtitle", event.target.value)}
-                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
-                          />
-                        </label>
-                      </div>
                       <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
                         Play or scrub the video, then add a cue where the text should change.
                       </div>

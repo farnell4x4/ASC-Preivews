@@ -19,7 +19,11 @@ export function getTimelineTextState(state: EditorState, currentTime = 0) {
   const activeCue = getActiveTimelineCue(state.timelineTextCues, currentTime);
 
   if (!activeCue) {
-    return state;
+    return {
+      ...state,
+      headline: "",
+      subtitle: "",
+    };
   }
 
   return {
@@ -28,4 +32,3 @@ export function getTimelineTextState(state: EditorState, currentTime = 0) {
     subtitle: activeCue.subtitle,
   };
 }
-
