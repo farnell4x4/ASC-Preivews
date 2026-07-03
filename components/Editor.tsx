@@ -6,8 +6,18 @@ import { ExportButton } from "@/components/ExportButton";
 import { ScreenshotCanvas } from "@/components/ScreenshotCanvas";
 import { getBackgroundModeLabel, getBackgroundStyle } from "@/lib/backgroundStyle";
 import { defaultPreset, canvasPresets } from "@/lib/canvasPresets";
+import {
+  DEFAULT_SESSION_ID,
+  getFileSessionId,
+  listSavedEditorSessions,
+  loadActiveSessionId,
+  loadEditorSession,
+  saveActiveSessionId,
+  saveEditorSession,
+} from "@/lib/editorSessionStore";
 import { exportStateAsPng } from "@/lib/exportImage";
 import type { EditorState } from "@/lib/types";
+import type { SavedEditorSessionSummary } from "@/lib/editorSessionStore";
 
 const initialState: EditorState = {
   selectedPresetId: defaultPreset.id,
@@ -41,6 +51,10 @@ export function Editor() {
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
   const [previewZoom, setPreviewZoom] = useState(1);
   const [isBackgroundSheetOpen, setIsBackgroundSheetOpen] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState(DEFAULT_SESSION_ID);
+  const [isSessionReady, setIsSessionReady] = useState(false);
+  const [savedSessions, setSavedSessions] = useState<SavedEditorSessionSummary[]>([]);
+  const [isSavedFilesOpen, setIsSavedFilesOpen] = useState(false);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
   const [fitHeight, setFitHeight] = useState(720);
@@ -57,6 +71,81 @@ export function Editor() {
   const previewWidth = selectedPreset.width * previewScale;
   const previewHeight = selectedPreset.height * previewScale;
   const backgroundButtonStyle = useMemo(() => getBackgroundStyle(state), [state]);
+
+  const refreshSavedSessions = () => {
+    void listSavedEditorSessions()
+      .then((sessions) => {
+        setSavedSessions(sessions);
+      })
+      .catch(() => {
+        setSavedSessions([]);
+      });
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    void loadActiveSessionId()
+      .then(async (savedActiveSessionId) => {
+        const nextSessionId = savedActiveSessionId ?? DEFAULT_SESSION_ID;
+        const savedSession = await loadEditorSession(nextSessionId);
+
+        if (isCancelled) {
+          return;
+        }
+
+        setActiveSessionId(nextSessionId);
+
+        if (!savedSession) {
+          return;
+        }
+
+        setState({
+          ...initialState,
+          ...savedSession.state,
+        });
+        setPreviewZoom(savedSession.previewZoom);
+        setStatusMessage(
+          nextSessionId === DEFAULT_SESSION_ID
+            ? "Restored your last editing session."
+            : "Restored the saved settings for your last file.",
+        );
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setStatusMessage("Ready to export exact ASC-sized PNGs.");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          refreshSavedSessions();
+          setIsSessionReady(true);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSessionReady) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void Promise.all([
+        saveEditorSession(activeSessionId, { state, previewZoom }),
+        saveActiveSessionId(activeSessionId),
+      ]).then(() => {
+        refreshSavedSessions();
+      });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeSessionId, isSessionReady, previewZoom, state]);
 
   useEffect(() => {
     const node = previewViewportRef.current;
@@ -101,18 +190,65 @@ export function Editor() {
     }
 
     try {
-      const nextUrl = await readFileAsDataUrl(file);
-      const dimensions = await readImageDimensions(nextUrl);
-      const autoFitState = getAutoFitPhoneLayout(state, selectedPreset, dimensions);
+      setIsSessionReady(false);
 
-      setState((current) => ({
-        ...current,
-        uploadedScreenshotUrl: nextUrl,
-        ...autoFitState,
-      }));
+      const sessionId = getFileSessionId(file);
+      const nextUrl = await readFileAsDataUrl(file);
+      const savedSession = await loadEditorSession(sessionId);
+      const restoredState = savedSession
+        ? {
+            ...initialState,
+            ...savedSession.state,
+          }
+        : null;
+      const nextState = restoredState
+        ? {
+            ...restoredState,
+            uploadedScreenshotUrl: nextUrl,
+          }
+        : {
+            ...state,
+            uploadedScreenshotUrl: nextUrl,
+            ...getAutoFitPhoneLayout(
+              state,
+              selectedPreset,
+              await readImageDimensions(nextUrl),
+            ),
+          };
+
+      setActiveSessionId(sessionId);
+      setPreviewZoom(savedSession?.previewZoom ?? previewZoom);
+      setState(nextState);
       setStatusMessage(`Loaded ${file.name}.`);
     } catch {
       setStatusMessage("Unable to read that image file.");
+    } finally {
+      setIsSessionReady(true);
+    }
+  };
+
+  const handleSelectSavedSession = async (sessionId: string) => {
+    try {
+      setIsSessionReady(false);
+      const savedSession = await loadEditorSession(sessionId);
+
+      if (!savedSession) {
+        setStatusMessage("That saved file could not be restored.");
+        return;
+      }
+
+      setActiveSessionId(sessionId);
+      setState({
+        ...initialState,
+        ...savedSession.state,
+      });
+      setPreviewZoom(savedSession.previewZoom);
+      setIsSavedFilesOpen(false);
+      setStatusMessage("Restored the saved settings for that file.");
+    } catch {
+      setStatusMessage("Unable to load that saved file.");
+    } finally {
+      setIsSessionReady(true);
     }
   };
 
@@ -166,123 +302,177 @@ export function Editor() {
           </div>
         </header>
 
+        {savedSessions.length > 0 ? (
+          <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Saved Files
+                </div>
+                <div className="mt-1 text-sm text-slate-500">
+                  Jump back into any saved screenshot setup from IndexedDB.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSavedFilesOpen((current) => !current)}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+              >
+                {isSavedFilesOpen ? "Collapse" : `Show ${savedSessions.length}`}
+              </button>
+            </div>
+
+            {isSavedFilesOpen ? (
+              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                {savedSessions.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => void handleSelectSavedSession(session.id)}
+                    className={`group w-[136px] shrink-0 rounded-[1.4rem] border bg-white p-2 text-left transition ${
+                      activeSessionId === session.id
+                        ? "border-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.14)]"
+                        : "border-slate-200 hover:border-slate-300 hover:shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+                    }`}
+                  >
+                    <div className="relative aspect-[9/19.5] overflow-hidden rounded-[1rem] bg-slate-100">
+                      {session.previewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={session.previewUrl}
+                          alt={session.displayName}
+                          className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                          draggable={false}
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-xs font-medium text-slate-400">
+                          No preview
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 truncate text-sm font-semibold text-slate-800">
+                      {session.displayName}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-4 shadow-panel">
-            <div className="mb-4 px-1">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Preview
-                  </div>
-                  <div className="mt-1 text-sm text-slate-500">
-                    Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
-                  </div>
+          <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
+            <div className="space-y-4">
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                <div className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Preview
+                </div>
+                <div className="mt-1 text-sm text-slate-500">
+                  Scaled preview of the exact {selectedPreset.width}x{selectedPreset.height} export.
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-                  <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
-                    {[1.5, 1, 0.75, 0.5].map((zoom) => (
-                      <button
-                        key={zoom}
-                        type="button"
-                        onClick={() => setPreviewZoom(zoom)}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          previewZoom === zoom
-                            ? "bg-slate-900 text-white"
-                            : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                      >
-                        {Math.round(zoom * 100)}%
-                      </button>
-                    ))}
-                  </div>
+                <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                  {[1.5, 1, 0.75, 0.5].map((zoom) => (
+                    <button
+                      key={zoom}
+                      type="button"
+                      onClick={() => setPreviewZoom(zoom)}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                        previewZoom === zoom
+                          ? "bg-slate-900 text-white"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                  ))}
+                </div>
 
-                  <div className="w-[160px]">
-                    <ExportButton isExporting={isExporting} onExport={handleExport} />
-                  </div>
+                <div className="mt-4">
+                  <ExportButton isExporting={isExporting} onExport={handleExport} />
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Text & Color
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-slate-700">
-                        Font size: {state.fontSize}px
-                      </div>
-                      <input
-                        type="range"
-                        min={92}
-                        max={192}
-                        step={2}
-                        value={state.fontSize}
-                        onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
-                        className="w-full"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-slate-700">
-                        Text spacing: {state.textSpacing}px
-                      </div>
-                      <input
-                        type="range"
-                        min={18}
-                        max={72}
-                        step={2}
-                        value={state.textSpacing}
-                        onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
-                        className="w-full"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-slate-700">
-                        Text color
-                      </div>
-                      <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                        <input
-                          type="color"
-                          value={state.textColor}
-                          onChange={(event) => handleStateChange("textColor", event.target.value)}
-                          className="h-11 w-11 cursor-pointer rounded-full"
-                        />
-                        <span className="text-sm text-slate-600">{state.textColor}</span>
-                      </div>
-                    </label>
-
-                    <label className="block">
-                      <div className="mb-2 text-sm font-medium text-slate-700">
-                        Background color
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsBackgroundSheetOpen(true)}
-                        className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300"
-                      >
-                        <span
-                          className="h-11 w-11 rounded-full border border-slate-200 shadow-inner"
-                          style={backgroundButtonStyle}
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium text-slate-700">
-                            {getBackgroundModeLabel(state.backgroundMode)}
-                          </span>
-                          <span className="block truncate text-sm text-slate-500">
-                            {state.backgroundMode === "solid"
-                              ? state.backgroundColor
-                              : `${state.backgroundColor} -> ${state.backgroundAccentColor}`}
-                          </span>
-                        </span>
-                      </button>
-                    </label>
-                  </div>
+              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                <div className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Text & Color
                 </div>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">
+                      Font size: {state.fontSize}px
+                    </div>
+                    <input
+                      type="range"
+                      min={92}
+                      max={192}
+                      step={2}
+                      value={state.fontSize}
+                      onChange={(event) => handleStateChange("fontSize", Number(event.target.value))}
+                      className="w-full"
+                    />
+                  </label>
 
-                <div className="flex flex-col gap-4 xl:items-end">
-                <label className="w-full xl:max-w-[260px]">
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">
+                      Text spacing: {state.textSpacing}px
+                    </div>
+                    <input
+                      type="range"
+                      min={18}
+                      max={72}
+                      step={2}
+                      value={state.textSpacing}
+                      onChange={(event) => handleStateChange("textSpacing", Number(event.target.value))}
+                      className="w-full"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">
+                      Text color
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                      <input
+                        type="color"
+                        value={state.textColor}
+                        onChange={(event) => handleStateChange("textColor", event.target.value)}
+                        className="h-11 w-11 cursor-pointer rounded-full"
+                      />
+                      <span className="text-sm text-slate-600">{state.textColor}</span>
+                    </div>
+                  </label>
+
+                  <label className="block">
+                    <div className="mb-2 text-sm font-medium text-slate-700">
+                      Background color
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsBackgroundSheetOpen(true)}
+                      className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300"
+                    >
+                      <span
+                        className="h-11 w-11 rounded-full border border-slate-200 shadow-inner"
+                        style={backgroundButtonStyle}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-700">
+                          {getBackgroundModeLabel(state.backgroundMode)}
+                        </span>
+                        <span className="block truncate text-sm text-slate-500">
+                          {state.backgroundMode === "solid"
+                            ? state.backgroundColor
+                            : `${state.backgroundColor} -> ${state.backgroundAccentColor}`}
+                        </span>
+                      </span>
+                    </button>
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                <label className="block">
                   <div className="mb-2 text-sm font-medium text-slate-700">
                     ASC preset
                   </div>
@@ -299,7 +489,7 @@ export function Editor() {
                   </select>
                 </label>
 
-                <label className="w-full xl:max-w-[220px]">
+                <label className="block">
                   <div className="mb-2 text-sm font-medium text-slate-700">
                     Choose file
                   </div>
@@ -310,7 +500,6 @@ export function Editor() {
                     className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
                   />
                 </label>
-                </div>
               </div>
             </div>
 
@@ -322,7 +511,8 @@ export function Editor() {
               }}
             >
               <div
-className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"                style={{
+                className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
+                style={{
                   width: previewWidth,
                   height: previewHeight,
                 }}
@@ -336,6 +526,7 @@ className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg
                 />
               </div>
             </div>
+          </div>
         </section>
       </div>
 

@@ -88,7 +88,10 @@ export function PhoneMockup({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={screenshotUrl}
-              alt="Uploaded app screenshot preview"
+              alt="
+              
+              
+              screenshot preview"
               className="block h-full w-full object-cover"
               draggable={false}
             />
