@@ -22,5 +22,8 @@ export type EditorState = {
   phoneX: number;
   phoneY: number;
   phoneRotation: number;
+  phoneWidthScale: number;
+  phoneHeightScale: number;
+  phoneCornerScale: number;
   textSpacing: number;
 };

@@ -6,26 +6,28 @@ type PhoneMockupProps = {
   screenshotUrl: string | null;
   device: DeviceKind;
   renderScale?: number;
+  cornerScale?: number;
 };
 
 export function PhoneMockup({
   screenshotUrl,
   device,
   renderScale = 1,
+  cornerScale = 1,
 }: PhoneMockupProps) {
   const isTablet = device === "tablet";
   const scalePx = (value: number) => `${value * renderScale}px`;
 
-  const bodyRadius = isTablet ? scalePx(72) : scalePx(96);
-  const screenRadius = isTablet ? scalePx(54) : scalePx(78);
+  const bodyRadius = isTablet ? scalePx(72 * cornerScale) : scalePx(96 * cornerScale);
+  const screenRadius = isTablet ? scalePx(54 * cornerScale) : scalePx(78 * cornerScale);
 
   return (
-    <div className="relative w-full">
+    <div className="relative h-full w-full">
       <div
         className="relative mx-auto bg-[#111827]"
         style={{
           width: "100%",
-          aspectRatio: isTablet ? "0.78 / 1" : "0.49 / 1",
+          height: "100%",
           borderRadius: bodyRadius,
           padding: isTablet ? "2.2%" : "2.7%",
           boxShadow: `0 ${scalePx(30)} ${scalePx(56)} rgba(15,23,42,0.18)`,

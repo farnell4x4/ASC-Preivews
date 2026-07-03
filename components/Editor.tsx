@@ -22,6 +22,9 @@ const initialState: EditorState = {
   phoneX: 50,
   phoneY: 52.5,
   phoneRotation: 0,
+  phoneWidthScale: 1,
+  phoneHeightScale: 1,
+  phoneCornerScale: 1,
   textSpacing: 28,
 };
 
