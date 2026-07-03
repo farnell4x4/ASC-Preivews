@@ -26,13 +26,15 @@ export function ScreenshotCanvas({
     startX: number;
     startY: number;
     originTextBoxX: number;
+    originTextBoxY: number;
     originTextBoxWidth: number;
   } | null>(null);
   const dragStateRef = useRef<{
     pointerId: number;
-    mode: "move" | "width" | "height" | "corner" | "rotate";
+    mode: "move" | "width" | "height" | "scale" | "corner" | "rotate";
     startX: number;
     startY: number;
+    originPhoneScale: number;
     originPhoneX: number;
     originPhoneY: number;
     originPhoneWidthScale: number;
@@ -48,9 +50,11 @@ export function ScreenshotCanvas({
   const isTop = state.textPosition === "top";
   const scalePx = (value: number) => value * renderScale;
   const canvasWidthPx = preset.width * renderScale;
+  const canvasHeightPx = preset.height * renderScale;
   const topPad = preset.height * renderScale * 0.072;
   const bottomPad = preset.height * renderScale * 0.078;
   const textBoxLeftPx = (state.textBoxX / 100) * canvasWidthPx;
+  const textBoxOffsetYPx = (state.textBoxY / 100) * canvasHeightPx;
   const textBoxWidthPx = (state.textBoxWidth / 100) * canvasWidthPx;
   const titleSize = scalePx(state.fontSize);
   const subtitleSize = scalePx(Math.max(state.fontSize * 0.36, 34));
@@ -69,7 +73,7 @@ export function ScreenshotCanvas({
 
   const beginDrag = (
     event: import("react").PointerEvent<HTMLDivElement>,
-    mode: "move" | "width" | "height" | "corner" | "rotate",
+    mode: "move" | "width" | "height" | "scale" | "corner" | "rotate",
     axisSign: 1 | -1 = 1,
   ) => {
     if (!interactive || !onStateChange) {
@@ -81,6 +85,7 @@ export function ScreenshotCanvas({
       mode,
       startX: event.clientX,
       startY: event.clientY,
+      originPhoneScale: state.phoneScale,
       originPhoneX: state.phoneX,
       originPhoneY: state.phoneY,
       originPhoneWidthScale: state.phoneWidthScale,
@@ -117,6 +122,11 @@ export function ScreenshotCanvas({
     beginDrag(event, "height", axisSign);
   };
 
+  const handleScalePointerDown = (event: import("react").PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    beginDrag(event, "scale");
+  };
+
   const handleCornerPointerDown = (event: import("react").PointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
     beginDrag(event, "corner");
@@ -139,6 +149,7 @@ export function ScreenshotCanvas({
       startX: event.clientX,
       startY: event.clientY,
       originTextBoxX: state.textBoxX,
+      originTextBoxY: state.textBoxY,
       originTextBoxWidth: state.textBoxWidth,
     };
 
@@ -157,6 +168,7 @@ export function ScreenshotCanvas({
       startX: event.clientX,
       startY: event.clientY,
       originTextBoxX: state.textBoxX,
+      originTextBoxY: state.textBoxY,
       originTextBoxWidth: state.textBoxWidth,
     };
 
@@ -180,9 +192,11 @@ export function ScreenshotCanvas({
 
     if (textBoxDragState?.pointerId === event.pointerId) {
       const deltaXPercent = ((event.clientX - textBoxDragState.startX) / rect.width) * 100;
+      const deltaYPercent = ((event.clientY - textBoxDragState.startY) / rect.height) * 100;
 
       if (textBoxDragState.mode === "move") {
         onStateChange("textBoxX", textBoxDragState.originTextBoxX + deltaXPercent);
+        onStateChange("textBoxY", textBoxDragState.originTextBoxY + deltaYPercent);
         return;
       }
 
@@ -227,7 +241,14 @@ export function ScreenshotCanvas({
     }
 
     const diagonalDelta = (localX - localY) / Math.sqrt(2);
-    const nextCornerScale = Math.max(0.35, dragState.originPhoneCornerScale - diagonalDelta / 120);
+
+    if (dragState.mode === "scale") {
+      const nextScale = Math.max(0.2, Math.min(3, dragState.originPhoneScale + diagonalDelta / 240));
+      onStateChange("phoneScale", nextScale);
+      return;
+    }
+
+    const nextCornerScale = Math.max(0.35, dragState.originPhoneCornerScale + diagonalDelta / 120);
     onStateChange("phoneCornerScale", nextCornerScale);
   };
 
@@ -256,6 +277,7 @@ export function ScreenshotCanvas({
           width: textBoxWidthPx,
           top: isTop ? topPad : undefined,
           bottom: isTop ? undefined : bottomPad,
+          transform: `translateY(${textBoxOffsetYPx}px)`,
         }}
       >
         {interactive ? (
@@ -265,99 +287,72 @@ export function ScreenshotCanvas({
             onPointerUp={handlePointerEnd}
             onPointerCancel={handlePointerEnd}
             onLostPointerCapture={handlePointerEnd}
-            className="mb-2 inline-flex cursor-grab items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 shadow-sm active:cursor-grabbing"
+            className="mb-2 inline-flex cursor-grab touch-none items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 shadow-sm active:cursor-grabbing"
           >
             Text
           </div>
         ) : null}
 
         <div className="relative">
-          {interactive && onStateChange ? (
-            <>
-              <textarea
-                ref={headlineInputRef}
-                value={state.headline}
-                onChange={(event) => onStateChange("headline", event.target.value)}
-                onInput={(event) => autoSizeTextArea(event.currentTarget)}
-                rows={1}
-                className="block w-full resize-none overflow-hidden bg-transparent outline-none"
-                style={{
-                  fontSize: titleSize,
-                  lineHeight: 1.02,
-                  letterSpacing: "-0.04em",
-                  color: state.textColor,
-                  margin: 0,
-                  fontWeight: 700,
-                  width: "100%",
-                  padding: 0,
-                }}
-              />
-              <textarea
-                ref={subtitleInputRef}
-                value={state.subtitle}
-                onChange={(event) => onStateChange("subtitle", event.target.value)}
-                onInput={(event) => autoSizeTextArea(event.currentTarget)}
-                rows={1}
-                className="block w-full resize-none overflow-hidden bg-transparent outline-none"
-                style={{
-                  fontSize: subtitleSize,
-                  lineHeight: 1.2,
-                  color: state.textColor,
-                  opacity: 0.84,
-                  margin: 0,
-                  marginTop: gapSize,
-                  width: "100%",
-                  padding: 0,
-                }}
-              />
+          <textarea
+            ref={headlineInputRef}
+            value={state.headline}
+            onChange={(event) => onStateChange?.("headline", event.target.value)}
+            onInput={(event) => autoSizeTextArea(event.currentTarget)}
+            rows={1}
+            readOnly={!interactive}
+            className="block w-full resize-none overflow-hidden bg-transparent outline-none"
+            style={{
+              fontSize: titleSize,
+              lineHeight: 1.08,
+              letterSpacing: "-0.04em",
+              color: state.textColor,
+              margin: 0,
+              fontWeight: 700,
+              width: "100%",
+              padding: 0,
+              pointerEvents: interactive ? "auto" : "none",
+            }}
+          />
+          <textarea
+            ref={subtitleInputRef}
+            value={state.subtitle}
+            onChange={(event) => onStateChange?.("subtitle", event.target.value)}
+            onInput={(event) => autoSizeTextArea(event.currentTarget)}
+            rows={1}
+            readOnly={!interactive}
+            className="block w-full resize-none overflow-hidden bg-transparent outline-none"
+            style={{
+              fontSize: subtitleSize,
+              lineHeight: 1.2,
+              color: state.textColor,
+              opacity: 0.84,
+              margin: 0,
+              marginTop: gapSize,
+              width: "100%",
+              padding: 0,
+              pointerEvents: interactive ? "auto" : "none",
+            }}
+          />
 
-              <div
-                onPointerDown={handleTextBoxWidthPointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                onPointerCancel={handlePointerEnd}
-                onLostPointerCapture={handlePointerEnd}
-                className="absolute bottom-0 right-0 top-0 z-40 flex w-10 translate-x-0 cursor-ew-resize items-center justify-end pr-1"
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 shadow-sm">
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 12h16" />
-                    <path d="m8 8-4 4 4 4" />
-                    <path d="m16 8 4 4-4 4" />
-                  </svg>
-                </div>
+          {interactive && onStateChange ? (
+            <div
+              onPointerDown={handleTextBoxWidthPointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerEnd}
+              onPointerCancel={handlePointerEnd}
+              onLostPointerCapture={handlePointerEnd}
+              className="absolute bottom-0 right-0 top-0 z-40 flex w-10 translate-x-0 cursor-ew-resize items-center justify-end pr-1"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 shadow-sm">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 12h16" />
+                  <path d="m8 8-4 4 4 4" />
+                  <path d="m16 8 4 4-4 4" />
+                </svg>
               </div>
-            </>
-          ) : (
-            <>
-              <h2
-                style={{
-                  fontSize: titleSize,
-                  lineHeight: 1.02,
-                  letterSpacing: "-0.04em",
-                  color: state.textColor,
-                  margin: 0,
-                  fontWeight: 700,
-                  width: "100%",
-                }}
-              >
-                {state.headline}
-              </h2>
-              <p
-                style={{
-                  fontSize: subtitleSize,
-                  lineHeight: 1.2,
-                  color: state.textColor,
-                  opacity: 0.84,
-                  margin: 0,
-                  marginTop: gapSize,
-                  width: "100%",
-                }}
-              >
-                {state.subtitle}
-              </p>
-            </>
-          )}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -402,7 +397,7 @@ export function ScreenshotCanvas({
               </div>
 
               <div
-                onPointerDown={(event) => handleCornerPointerDown(event)}
+                onPointerDown={(event) => handleScalePointerDown(event)}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
@@ -415,6 +410,17 @@ export function ScreenshotCanvas({
                   <path d="M7 20H4v-3" />
                   <path d="M17 4h3v3" />
                 </svg>
+              </div>
+
+              <div
+                onPointerDown={(event) => handleCornerPointerDown(event)}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerEnd}
+                onPointerCancel={handlePointerEnd}
+                onLostPointerCapture={handlePointerEnd}
+                className="absolute -bottom-4 -left-4 flex h-8 w-8 cursor-nwse-resize items-center justify-center rounded-full border border-sky-200 bg-white/95 text-sky-600 opacity-0 shadow-sm transition group-hover:opacity-100"
+              >
+                <CornerRadiusIcon className="h-4 w-4" />
               </div>
 
               <div
@@ -488,6 +494,26 @@ function SideHandle({ orientation }: { orientation: "horizontal" | "vertical" })
   );
 }
 
+function CornerRadiusIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ transform: "rotate(90deg)" }}
+    >
+      <path d="M5 19V10a5 5 0 0 1 5-5h9" />
+      <path d="M15 15l-4-4" />
+      <path d="M11 15v-4h4" />
+    </svg>
+  );
+}
+
 function clampRotation(value: number) {
   return Math.min(Math.max(value, -180), 180);
 }
@@ -498,5 +524,5 @@ function autoSizeTextArea(node: HTMLTextAreaElement | null) {
   }
 
   node.style.height = "0px";
-  node.style.height = `${node.scrollHeight}px`;
+  node.style.height = `${node.scrollHeight + 2}px`;
 }

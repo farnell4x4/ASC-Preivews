@@ -16,6 +16,7 @@ const initialState: EditorState = {
   subtitle: "Simple. Clean. Focused.",
   textPosition: "top",
   textBoxX: 4,
+  textBoxY: 0,
   textBoxWidth: 112,
   fontSize: 144,
   textColor: "#0f172a",
@@ -242,20 +243,6 @@ export function Editor() {
                   />
                 </label>
 
-                <label className="w-full xl:max-w-[220px]">
-                  <div className="mb-2 text-sm font-medium text-slate-700">
-                    Size: {state.phoneScale.toFixed(2)}x
-                  </div>
-                  <input
-                    type="range"
-                    min={0.2}
-                    max={3}
-                    step={0.01}
-                    value={Math.min(state.phoneScale, 3)}
-                    onChange={(event) => handleStateChange("phoneScale", Number(event.target.value))}
-                    className="w-full"
-                  />
-                </label>
               </div>
             </div>
 
