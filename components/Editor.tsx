@@ -697,7 +697,8 @@ export function Editor() {
           blob,
           `app-preview-${selectedPreset.width}x${selectedPreset.height}.${extension}`,
         );
-        setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} audio-free ${label}.`);
+
+        setStatusMessage(`Exported ${selectedPreset.width}x${selectedPreset.height} ${label}.`);
       } else {
         const blob = await exportStateAsPng(selectedPreset, state);
         downloadBlob(
