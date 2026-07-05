@@ -1,4 +1,4 @@
-import type { EditorState } from "@/lib/types";
+import type { EditorMediaType, EditorState } from "@/lib/types";
 
 const DATABASE_NAME = "asc-screenshot-maker";
 const DATABASE_VERSION = 3;
@@ -7,6 +7,7 @@ const META_STORE_NAME = "editorMeta";
 const ACTIVE_SESSION_KEY = "activeSessionId";
 const LOADED_SESSION_IDS_KEY = "loadedSessionIds";
 const PREVIEW_ZOOM_KEY = "previewZoom";
+const CANVAS_MEDIA_TYPE_KEY = "canvasMediaType";
 const CONTROL_PANEL_POSITION_KEY = "controlPanelPosition";
 const PRESENTATION_CONTROL_POSITION_KEY = "presentationControlPosition";
 
@@ -247,6 +248,49 @@ export async function savePreviewZoom(previewZoom: number) {
     request.onsuccess = () => resolve();
     request.onerror = () => {
       reject(request.error ?? new Error("Unable to save preview zoom."));
+    };
+  });
+}
+
+export async function loadCanvasMediaType() {
+  const database = await openDatabase();
+
+  return new Promise<EditorMediaType | null>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readonly");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.get(CANVAS_MEDIA_TYPE_KEY);
+
+    request.onsuccess = () => {
+      const record = request.result as MetaRecord | undefined;
+
+      if (record?.value === "image" || record?.value === "video") {
+        resolve(record.value);
+        return;
+      }
+
+      resolve(null);
+    };
+
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to load canvas type."));
+    };
+  });
+}
+
+export async function saveCanvasMediaType(mediaType: EditorMediaType) {
+  const database = await openDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(META_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(META_STORE_NAME);
+    const request = store.put({
+      key: CANVAS_MEDIA_TYPE_KEY,
+      value: mediaType,
+    } satisfies MetaRecord);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+      reject(request.error ?? new Error("Unable to save canvas type."));
     };
   });
 }

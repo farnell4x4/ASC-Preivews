@@ -20,12 +20,14 @@ import {
   getFileSessionId,
   listSavedEditorSessions,
   loadActiveSessionId,
+  loadCanvasMediaType,
   loadControlPanelPosition,
   loadLoadedSessionIds,
   loadEditorSession,
   loadPresentationControlPosition,
   loadPreviewZoom,
   saveActiveSessionId,
+  saveCanvasMediaType,
   saveControlPanelPosition,
   saveLoadedSessionIds,
   saveEditorSession,
@@ -242,6 +244,7 @@ export function Editor() {
       loadActiveSessionId(),
       loadLoadedSessionIds(),
       loadPreviewZoom(),
+      loadCanvasMediaType(),
       loadControlPanelPosition(),
       loadPresentationControlPosition(),
     ])
@@ -249,6 +252,7 @@ export function Editor() {
         savedActiveSessionId,
         savedLoadedSessionIds,
         savedPreviewZoom,
+        savedCanvasMediaType,
         savedControlPanelPosition,
         savedPresentationControlPosition,
       ]) => {
@@ -265,6 +269,9 @@ export function Editor() {
         );
         if (savedPreviewZoom !== null) {
           setPreviewZoom(savedPreviewZoom);
+        }
+        if (savedCanvasMediaType) {
+          setCanvasMediaType(savedCanvasMediaType);
         }
         if (savedControlPanelPosition) {
           setControlPanelPosition(savedControlPanelPosition);
@@ -289,7 +296,7 @@ export function Editor() {
           ...initialState,
           ...savedSession.state,
         });
-        setCanvasMediaType(savedSession.state.mediaType);
+        setCanvasMediaType(savedCanvasMediaType ?? savedSession.state.mediaType);
         setSelectedCueId(savedSession.state.timelineTextCues?.[0]?.id ?? null);
         setStatusMessage(
           nextSessionId === DEFAULT_SESSION_ID
@@ -325,13 +332,14 @@ export function Editor() {
         saveActiveSessionId(activeSessionId),
         saveLoadedSessionIds(loadedSessionIds),
         savePreviewZoom(previewZoom),
+        saveCanvasMediaType(canvasMediaType),
       ]).then(() => refreshSavedSessions());
     }, 250);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [activeSessionId, isSessionReady, loadedSessionIds, previewZoom, state]);
+  }, [activeSessionId, canvasMediaType, isSessionReady, loadedSessionIds, previewZoom, state]);
 
   useEffect(() => {
     if (!isSessionReady || !controlPanelPosition) {
