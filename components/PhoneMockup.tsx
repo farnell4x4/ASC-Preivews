@@ -10,6 +10,9 @@ type PhoneMockupProps = {
   frameWidthPx?: number;
   showVideoControls?: boolean;
   previewFrameTime?: number;
+  shouldSyncPreviewFrame?: boolean;
+  autoPlayVideo?: boolean;
+  loopVideo?: boolean;
   onVideoTimeUpdate?: (currentTime: number, duration: number) => void;
 };
 
@@ -22,6 +25,9 @@ export function PhoneMockup({
   frameWidthPx,
   showVideoControls = true,
   previewFrameTime,
+  shouldSyncPreviewFrame = true,
+  autoPlayVideo = false,
+  loopVideo = false,
   onVideoTimeUpdate,
 }: PhoneMockupProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -39,13 +45,31 @@ export function PhoneMockup({
   useEffect(() => {
     const video = videoRef.current;
 
-    if (!video || previewFrameTime === undefined || !Number.isFinite(previewFrameTime)) {
+    if (!video || !shouldSyncPreviewFrame || previewFrameTime === undefined || !Number.isFinite(previewFrameTime)) {
       return;
     }
 
     syncPreviewFrame(video, previewFrameTime);
     onVideoTimeUpdate?.(video.currentTime, video.duration);
-  }, [onVideoTimeUpdate, previewFrameTime, videoUrl]);
+  }, [onVideoTimeUpdate, previewFrameTime, shouldSyncPreviewFrame, videoUrl]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video || !autoPlayVideo) {
+      return;
+    }
+
+    const playVideo = async () => {
+      try {
+        await video.play();
+      } catch {
+        // Autoplay can be blocked until the browser considers the element interactive.
+      }
+    };
+
+    void playVideo();
+  }, [autoPlayVideo, videoUrl]);
 
   return (
     <div className="relative h-full w-full">
@@ -115,14 +139,22 @@ export function PhoneMockup({
               muted
               playsInline
               preload="auto"
+              autoPlay={autoPlayVideo}
+              loop={loopVideo}
               onLoadedMetadata={(event) => {
                 const video = event.currentTarget;
-                syncPreviewFrame(video, desiredFrameTimeRef.current);
+                if (shouldSyncPreviewFrame) {
+                  syncPreviewFrame(video, desiredFrameTimeRef.current);
+                }
                 onVideoTimeUpdate?.(video.currentTime, video.duration);
               }}
               onLoadedData={(event) => {
                 const video = event.currentTarget;
-                syncPreviewFrame(video, desiredFrameTimeRef.current);
+                if (shouldSyncPreviewFrame) {
+                  syncPreviewFrame(video, desiredFrameTimeRef.current);
+                } else if (autoPlayVideo) {
+                  void video.play().catch(() => {});
+                }
               }}
               onTimeUpdate={(event) => {
                 const video = event.currentTarget;

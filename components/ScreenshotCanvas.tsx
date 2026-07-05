@@ -14,6 +14,9 @@ type ScreenshotCanvasProps = {
   renderScale?: number;
   interactive?: boolean;
   currentTime?: number;
+  syncVideoFrame?: boolean;
+  autoPlayVideo?: boolean;
+  loopVideo?: boolean;
   onVideoTimeUpdate?: (currentTime: number, duration: number) => void;
   onStateChange?: <K extends keyof EditorState>(key: K, value: EditorState[K]) => void;
 };
@@ -24,6 +27,9 @@ export function ScreenshotCanvas({
   renderScale = 1,
   interactive = false,
   currentTime = 0,
+  syncVideoFrame = true,
+  autoPlayVideo = false,
+  loopVideo = false,
   onVideoTimeUpdate,
   onStateChange,
 }: ScreenshotCanvasProps) {
@@ -404,6 +410,9 @@ export function ScreenshotCanvas({
               cornerScale={timelineState.phoneCornerScale}
               frameWidthPx={phoneWidthPx}
               showVideoControls={false}
+              shouldSyncPreviewFrame={syncVideoFrame}
+              autoPlayVideo={autoPlayVideo}
+              loopVideo={loopVideo}
               previewFrameTime={timelineState.mediaType === "video" ? currentTime : undefined}
               onVideoTimeUpdate={onVideoTimeUpdate}
             />

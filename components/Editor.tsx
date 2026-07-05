@@ -97,6 +97,7 @@ export function Editor() {
   type ControlPanel = "files" | "format" | "preview" | "timeline" | "export" | "background";
 
   const [state, setState] = useState<EditorState>(initialState);
+  const [canvasMediaType, setCanvasMediaType] = useState<EditorMediaType>("image");
   const [isExporting, setIsExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to export exact ASC-sized PNGs.");
   const [previewZoom, setPreviewZoom] = useState(1);
@@ -110,6 +111,8 @@ export function Editor() {
   const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
   const [controlPanelPosition, setControlPanelPosition] = useState<ControlPanelPosition | null>(null);
+  const [isPresentingPreview, setIsPresentingPreview] = useState(false);
+  const [presentationViewport, setPresentationViewport] = useState({ width: 1280, height: 720 });
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const controlPanelRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
@@ -129,6 +132,12 @@ export function Editor() {
   const previewScale = fitScale * previewZoom;
   const previewWidth = selectedPreset.width * previewScale;
   const previewHeight = selectedPreset.height * previewScale;
+  const presentationScale = Math.min(
+    Math.max((presentationViewport.width - 48) / selectedPreset.width, 0.1),
+    Math.max((presentationViewport.height - 48) / selectedPreset.height, 0.1),
+  );
+  const presentationWidth = selectedPreset.width * presentationScale;
+  const presentationHeight = selectedPreset.height * presentationScale;
   const backgroundButtonStyle = useMemo(() => getBackgroundStyle(state), [state]);
   const savedSessionMap = useMemo(
     () => new Map(savedSessions.map((session) => [session.id, session])),
@@ -165,6 +174,14 @@ export function Editor() {
     () => loadedPreviewItems.filter((item) => item.state.mediaType === "image"),
     [loadedPreviewItems],
   );
+  const visiblePreviewItems = useMemo(
+    () => loadedPreviewItems.filter((item) => item.state.mediaType === canvasMediaType),
+    [canvasMediaType, loadedPreviewItems],
+  );
+  const canPresentActivePreview =
+    canvasMediaType === "video" &&
+    state.mediaType === "video" &&
+    Boolean(state.uploadedMediaUrl);
 
   const refreshSavedSessions = async () => {
     try {
@@ -185,6 +202,7 @@ export function Editor() {
     }
 
     setActiveSessionId(sessionId);
+    setCanvasMediaType(savedSession.state.mediaType);
     setState({
       ...initialState,
       ...savedSession.state,
@@ -201,6 +219,7 @@ export function Editor() {
 
   const resetToDefaultDraft = () => {
     setActiveSessionId(DEFAULT_SESSION_ID);
+    setCanvasMediaType(initialState.mediaType);
     setState(initialState);
     setPreviewVideoTime(0);
     setPreviewVideoDuration(0);
@@ -246,6 +265,7 @@ export function Editor() {
           ...initialState,
           ...savedSession.state,
         });
+        setCanvasMediaType(savedSession.state.mediaType);
         setSelectedCueId(savedSession.state.timelineTextCues?.[0]?.id ?? null);
         setStatusMessage(
           nextSessionId === DEFAULT_SESSION_ID
@@ -334,6 +354,61 @@ export function Editor() {
       window.removeEventListener("resize", updatePosition);
     };
   }, [activeControlPanel, controlPanelPosition]);
+
+  useEffect(() => {
+    if (!isPresentingPreview) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsPresentingPreview(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isPresentingPreview]);
+
+  useEffect(() => {
+    if (!isPresentingPreview) {
+      return;
+    }
+
+    const updateViewport = () => {
+      setPresentationViewport({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+    };
+  }, [isPresentingPreview]);
+
+  useEffect(() => {
+    if (!isPresentingPreview) {
+      return;
+    }
+
+    if (!canPresentActivePreview) {
+      setIsPresentingPreview(false);
+      return;
+    }
+
+    const { overflow } = document.body.style;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = overflow;
+    };
+  }, [canPresentActivePreview, isPresentingPreview]);
 
   useEffect(() => {
     if (!isDraggingControlPanel) {
@@ -450,6 +525,11 @@ export function Editor() {
 
   const handlePreviewFrameChange = (nextTime: number) => {
     setPreviewVideoTime(Math.max(0, nextTime));
+  };
+
+  const handleOpenPreviewPresentation = () => {
+    setPreviewVideoTime(0);
+    setIsPresentingPreview(true);
   };
 
   const updateSelectedCue = <K extends keyof TimelineTextCue>(
@@ -650,6 +730,7 @@ export function Editor() {
         return nextIds.filter((sessionId, index) => nextIds.indexOf(sessionId) === index);
       });
       setActiveSessionId(nextActiveFile.sessionId);
+      setCanvasMediaType(nextActiveFile.state.mediaType);
       setState(nextActiveFile.state);
       setSelectedCueId(nextActiveFile.state.timelineTextCues[0]?.id ?? null);
       setPreviewVideoTime(0);
@@ -825,6 +906,26 @@ export function Editor() {
           <div className="space-y-4">
             <div className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-3 shadow-[0_16px_50px_rgba(15,23,42,0.08)]">
               <div className="flex flex-wrap items-center gap-2">
+                <label className="mr-2 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">
+                  <span className="font-semibold">Canvas</span>
+                  <select
+                    value={canvasMediaType}
+                    onChange={(event) => setCanvasMediaType(event.target.value as EditorMediaType)}
+                    className="bg-transparent text-sm font-semibold outline-none"
+                  >
+                    <option value="video">Previews</option>
+                    <option value="image">Screenshots</option>
+                  </select>
+                </label>
+                {canPresentActivePreview ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenPreviewPresentation}
+                    className="rounded-full border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Present Preview
+                  </button>
+                ) : null}
                 {[
                   { id: "files", label: "Files", meta: `${savedSessions.length} saved` },
                   { id: "format", label: "Format", meta: "Text and spacing" },
@@ -866,8 +967,8 @@ export function Editor() {
               }}
             >
               <div className="flex gap-5 overflow-x-auto pb-2">
-                {loadedPreviewItems.length > 0 ? (
-                  loadedPreviewItems.map((item) => {
+                {visiblePreviewItems.length > 0 ? (
+                  visiblePreviewItems.map((item) => {
                     const itemPreset =
                       getPresetForMediaType(item.state.selectedPresetId, item.state.mediaType);
                     const itemScale =
@@ -945,6 +1046,12 @@ export function Editor() {
                       </div>
                     );
                   })
+                ) : loadedPreviewItems.length > 0 ? (
+                  <div className="flex min-h-[240px] w-full items-center justify-center rounded-[1.5rem] border border-dashed border-slate-300 bg-white/70 px-6 py-10 text-center text-sm text-slate-500">
+                    {canvasMediaType === "video"
+                      ? "No preview videos are currently loaded into the canvas."
+                      : "No screenshots are currently loaded into the canvas."}
+                  </div>
                 ) : (
                   <div
                     className="relative overflow-visible rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_30px_70px_rgba(15,23,42,0.12)]"
@@ -1570,6 +1677,44 @@ export function Editor() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isPresentingPreview && canPresentActivePreview ? (
+        <div className="fixed inset-0 z-50 bg-black">
+          <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsPresentingPreview(false)}
+              className="rounded-full border border-white/20 bg-black/50 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-black/70"
+            >
+              Exit
+            </button>
+            <div className="rounded-full border border-white/15 bg-black/40 px-4 py-2 text-sm text-white/85 backdrop-blur">
+              {selectedPreset.width}x{selectedPreset.height} scaled preview
+            </div>
+          </div>
+
+          <div className="flex h-full w-full items-center justify-center p-6">
+            <div
+              className="relative overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
+              style={{
+                width: presentationWidth,
+                height: presentationHeight,
+              }}
+            >
+              <ScreenshotCanvas
+                preset={selectedPreset}
+                state={state}
+                renderScale={presentationScale}
+                currentTime={previewVideoTime}
+                syncVideoFrame={false}
+                autoPlayVideo
+                loopVideo
+                onVideoTimeUpdate={handleVideoTimeUpdate}
+              />
             </div>
           </div>
         </div>
