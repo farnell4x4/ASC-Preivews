@@ -8,6 +8,7 @@ const ACTIVE_SESSION_KEY = "activeSessionId";
 const LOADED_SESSION_IDS_KEY = "loadedSessionIds";
 const PREVIEW_ZOOM_KEY = "previewZoom";
 const CONTROL_PANEL_POSITION_KEY = "controlPanelPosition";
+const PRESENTATION_CONTROL_POSITION_KEY = "presentationControlPosition";
 
 export const DEFAULT_SESSION_ID = "default";
 
@@ -251,56 +252,73 @@ export async function savePreviewZoom(previewZoom: number) {
 }
 
 export async function loadControlPanelPosition() {
-  const database = await openDatabase();
-
-  return new Promise<ControlPanelPosition | null>((resolve, reject) => {
-    const transaction = database.transaction(META_STORE_NAME, "readonly");
-    const store = transaction.objectStore(META_STORE_NAME);
-    const request = store.get(CONTROL_PANEL_POSITION_KEY);
-
-    request.onsuccess = () => {
-      const record = request.result as MetaRecord | undefined;
-
-      if (!record?.value) {
-        resolve(null);
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(record.value) as Partial<ControlPanelPosition>;
-        if (typeof parsed.x === "number" && Number.isFinite(parsed.x) && typeof parsed.y === "number" && Number.isFinite(parsed.y)) {
-          resolve({ x: parsed.x, y: parsed.y });
-          return;
-        }
-      } catch {
-        // Fall through to null for invalid persisted values.
-      }
-
-      resolve(null);
-    };
-
-    request.onerror = () => {
-      reject(request.error ?? new Error("Unable to load toolbar sheet position."));
-    };
-  });
+  return loadMetaPosition(CONTROL_PANEL_POSITION_KEY, "Unable to load toolbar sheet position.");
 }
 
 export async function saveControlPanelPosition(position: ControlPanelPosition) {
-  const database = await openDatabase();
+  return saveMetaPosition(CONTROL_PANEL_POSITION_KEY, position, "Unable to save toolbar sheet position.");
+}
 
-  return new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(META_STORE_NAME, "readwrite");
-    const store = transaction.objectStore(META_STORE_NAME);
-    const request = store.put({
-      key: CONTROL_PANEL_POSITION_KEY,
-      value: JSON.stringify(position),
-    } satisfies MetaRecord);
+export async function loadPresentationControlPosition() {
+  return loadMetaPosition(PRESENTATION_CONTROL_POSITION_KEY, "Unable to load presentation control position.");
+}
 
-    request.onsuccess = () => resolve();
-    request.onerror = () => {
-      reject(request.error ?? new Error("Unable to save toolbar sheet position."));
-    };
-  });
+export async function savePresentationControlPosition(position: ControlPanelPosition) {
+  return saveMetaPosition(PRESENTATION_CONTROL_POSITION_KEY, position, "Unable to save presentation control position.");
+}
+
+function loadMetaPosition(key: string, errorMessage: string) {
+  return openDatabase().then(
+    (database) =>
+      new Promise<ControlPanelPosition | null>((resolve, reject) => {
+        const transaction = database.transaction(META_STORE_NAME, "readonly");
+        const store = transaction.objectStore(META_STORE_NAME);
+        const request = store.get(key);
+
+        request.onsuccess = () => {
+          const record = request.result as MetaRecord | undefined;
+
+          if (!record?.value) {
+            resolve(null);
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(record.value) as Partial<ControlPanelPosition>;
+            if (typeof parsed.x === "number" && Number.isFinite(parsed.x) && typeof parsed.y === "number" && Number.isFinite(parsed.y)) {
+              resolve({ x: parsed.x, y: parsed.y });
+              return;
+            }
+          } catch {
+            // Fall through to null for invalid persisted values.
+          }
+
+          resolve(null);
+        };
+        request.onerror = () => {
+          reject(request.error ?? new Error(errorMessage));
+        };
+      }),
+  );
+}
+
+function saveMetaPosition(key: string, position: ControlPanelPosition, errorMessage: string) {
+  return openDatabase().then(
+    (database) =>
+      new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(META_STORE_NAME, "readwrite");
+        const store = transaction.objectStore(META_STORE_NAME);
+        const request = store.put({
+          key,
+          value: JSON.stringify(position),
+        } satisfies MetaRecord);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => {
+          reject(request.error ?? new Error(errorMessage));
+        };
+      }),
+  );
 }
 
 export async function deleteEditorSession(sessionId: string) {

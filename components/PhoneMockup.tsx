@@ -13,6 +13,7 @@ type PhoneMockupProps = {
   shouldSyncPreviewFrame?: boolean;
   autoPlayVideo?: boolean;
   loopVideo?: boolean;
+  onVideoElementReady?: (video: HTMLVideoElement | null) => void;
   onVideoTimeUpdate?: (currentTime: number, duration: number) => void;
 };
 
@@ -28,6 +29,7 @@ export function PhoneMockup({
   shouldSyncPreviewFrame = true,
   autoPlayVideo = false,
   loopVideo = false,
+  onVideoElementReady,
   onVideoTimeUpdate,
 }: PhoneMockupProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -70,6 +72,14 @@ export function PhoneMockup({
 
     void playVideo();
   }, [autoPlayVideo, videoUrl]);
+
+  useEffect(() => {
+    onVideoElementReady?.(videoRef.current);
+
+    return () => {
+      onVideoElementReady?.(null);
+    };
+  }, [onVideoElementReady, videoUrl]);
 
   return (
     <div className="relative h-full w-full">

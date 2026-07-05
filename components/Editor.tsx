@@ -23,11 +23,13 @@ import {
   loadControlPanelPosition,
   loadLoadedSessionIds,
   loadEditorSession,
+  loadPresentationControlPosition,
   loadPreviewZoom,
   saveActiveSessionId,
   saveControlPanelPosition,
   saveLoadedSessionIds,
   saveEditorSession,
+  savePresentationControlPosition,
   savePreviewZoom,
 } from "@/lib/editorSessionStore";
 import { exportStateAsPng } from "@/lib/exportImage";
@@ -113,10 +115,17 @@ export function Editor() {
   const [controlPanelPosition, setControlPanelPosition] = useState<ControlPanelPosition | null>(null);
   const [isPresentingPreview, setIsPresentingPreview] = useState(false);
   const [presentationViewport, setPresentationViewport] = useState({ width: 1280, height: 720 });
+  const [presentationVideoElement, setPresentationVideoElement] = useState<HTMLVideoElement | null>(null);
+  const [isPresentationPlaying, setIsPresentationPlaying] = useState(true);
+  const [presentationControlPosition, setPresentationControlPosition] = useState<ControlPanelPosition | null>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const controlPanelRef = useRef<HTMLDivElement>(null);
+  const presentationControlsRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const presentationDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPresentationClockRef = useRef(-1);
   const [isDraggingControlPanel, setIsDraggingControlPanel] = useState(false);
+  const [isDraggingPresentationControls, setIsDraggingPresentationControls] = useState(false);
   const [previewViewportWidth, setPreviewViewportWidth] = useState(420);
   const [fitHeight, setFitHeight] = useState(720);
 
@@ -229,8 +238,20 @@ export function Editor() {
   useEffect(() => {
     let isCancelled = false;
 
-    void Promise.all([loadActiveSessionId(), loadLoadedSessionIds(), loadPreviewZoom(), loadControlPanelPosition()])
-      .then(async ([savedActiveSessionId, savedLoadedSessionIds, savedPreviewZoom, savedControlPanelPosition]) => {
+    void Promise.all([
+      loadActiveSessionId(),
+      loadLoadedSessionIds(),
+      loadPreviewZoom(),
+      loadControlPanelPosition(),
+      loadPresentationControlPosition(),
+    ])
+      .then(async ([
+        savedActiveSessionId,
+        savedLoadedSessionIds,
+        savedPreviewZoom,
+        savedControlPanelPosition,
+        savedPresentationControlPosition,
+      ]) => {
         const nextSessionId = savedActiveSessionId ?? DEFAULT_SESSION_ID;
         const savedSession = await loadEditorSession(nextSessionId);
 
@@ -247,6 +268,9 @@ export function Editor() {
         }
         if (savedControlPanelPosition) {
           setControlPanelPosition(savedControlPanelPosition);
+        }
+        if (savedPresentationControlPosition) {
+          setPresentationControlPosition(savedPresentationControlPosition);
         }
 
         if (!savedSession) {
@@ -324,6 +348,20 @@ export function Editor() {
   }, [controlPanelPosition, isSessionReady]);
 
   useEffect(() => {
+    if (!isSessionReady || !presentationControlPosition) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void savePresentationControlPosition(presentationControlPosition);
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isSessionReady, presentationControlPosition]);
+
+  useEffect(() => {
     if (!activeControlPanel) {
       return;
     }
@@ -397,6 +435,38 @@ export function Editor() {
       return;
     }
 
+    const updatePosition = () => {
+      const panelNode = presentationControlsRef.current;
+
+      if (!panelNode) {
+        return;
+      }
+
+      const nextPosition = clampControlPanelPosition(
+        presentationControlPosition ?? getDefaultPresentationControlPosition(panelNode.offsetWidth, panelNode.offsetHeight),
+        panelNode.offsetWidth,
+        panelNode.offsetHeight,
+      );
+
+      setPresentationControlPosition((current) =>
+        current && current.x === nextPosition.x && current.y === nextPosition.y ? current : nextPosition,
+      );
+    };
+
+    const frameId = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [isPresentingPreview, presentationControlPosition]);
+
+  useEffect(() => {
+    if (!isPresentingPreview) {
+      return;
+    }
+
     if (!canPresentActivePreview) {
       setIsPresentingPreview(false);
       return;
@@ -409,6 +479,75 @@ export function Editor() {
       document.body.style.overflow = overflow;
     };
   }, [canPresentActivePreview, isPresentingPreview]);
+
+  useEffect(() => {
+    const video = presentationVideoElement;
+
+    if (!video) {
+      return;
+    }
+
+    const syncPlayingState = () => {
+      setIsPresentationPlaying(!video.paused && !video.ended);
+    };
+
+    syncPlayingState();
+    video.addEventListener("play", syncPlayingState);
+    video.addEventListener("pause", syncPlayingState);
+    video.addEventListener("ended", syncPlayingState);
+
+    return () => {
+      video.removeEventListener("play", syncPlayingState);
+      video.removeEventListener("pause", syncPlayingState);
+      video.removeEventListener("ended", syncPlayingState);
+    };
+  }, [presentationVideoElement]);
+
+  useEffect(() => {
+    const video = presentationVideoElement;
+
+    if (!isPresentingPreview || !video) {
+      lastPresentationClockRef.current = -1;
+      return;
+    }
+
+    let frameId = 0;
+
+    const syncPresentationClock = () => {
+      const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+
+      if (duration > 0) {
+        setPreviewVideoDuration(duration);
+      }
+
+      if (Math.abs(lastPresentationClockRef.current - currentTime) >= 0.005) {
+        lastPresentationClockRef.current = currentTime;
+        setPreviewVideoTime(currentTime);
+      }
+
+      if (!video.paused && !video.ended) {
+        frameId = window.requestAnimationFrame(syncPresentationClock);
+      }
+    };
+
+    const startClock = () => {
+      window.cancelAnimationFrame(frameId);
+      syncPresentationClock();
+    };
+
+    startClock();
+    video.addEventListener("play", startClock);
+    video.addEventListener("seeked", startClock);
+    video.addEventListener("loadedmetadata", startClock);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      video.removeEventListener("play", startClock);
+      video.removeEventListener("seeked", startClock);
+      video.removeEventListener("loadedmetadata", startClock);
+    };
+  }, [isPresentingPreview, presentationVideoElement]);
 
   useEffect(() => {
     if (!isDraggingControlPanel) {
@@ -448,6 +587,45 @@ export function Editor() {
       window.removeEventListener("pointerup", finishDragging);
     };
   }, [isDraggingControlPanel]);
+
+  useEffect(() => {
+    if (!isDraggingPresentationControls) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const panelNode = presentationControlsRef.current;
+      const dragOffset = presentationDragOffsetRef.current;
+
+      if (!panelNode || !dragOffset) {
+        return;
+      }
+
+      setPresentationControlPosition(
+        clampControlPanelPosition(
+          {
+            x: event.clientX - dragOffset.x,
+            y: event.clientY - dragOffset.y,
+          },
+          panelNode.offsetWidth,
+          panelNode.offsetHeight,
+        ),
+      );
+    };
+
+    const finishDragging = () => {
+      presentationDragOffsetRef.current = null;
+      setIsDraggingPresentationControls(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishDragging);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishDragging);
+    };
+  }, [isDraggingPresentationControls]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -520,16 +698,89 @@ export function Editor() {
 
   const handleSelectCue = (cue: TimelineTextCue) => {
     setSelectedCueId(cue.id);
-    setPreviewVideoTime(cue.startTime);
+    handlePreviewFrameChange(cue.startTime);
   };
 
   const handlePreviewFrameChange = (nextTime: number) => {
-    setPreviewVideoTime(Math.max(0, nextTime));
+    const normalizedTime = Math.max(0, nextTime);
+
+    if (isPresentingPreview && presentationVideoElement) {
+      const duration = Number.isFinite(presentationVideoElement.duration)
+        ? presentationVideoElement.duration
+        : previewVideoDuration;
+      const clampedTime = Math.min(normalizedTime, duration || normalizedTime);
+      presentationVideoElement.currentTime = clampedTime;
+      setPreviewVideoTime(clampedTime);
+      return;
+    }
+
+    setPreviewVideoTime(normalizedTime);
   };
 
   const handleOpenPreviewPresentation = () => {
     setPreviewVideoTime(0);
+    setPresentationVideoElement(null);
+    setIsPresentationPlaying(true);
     setIsPresentingPreview(true);
+  };
+
+  const handleClosePreviewPresentation = () => {
+    presentationVideoElement?.pause();
+    setIsPresentingPreview(false);
+    setPresentationVideoElement(null);
+  };
+
+  const handleTogglePresentationPlayback = async () => {
+    const video = presentationVideoElement;
+
+    if (!video) {
+      return;
+    }
+
+    if (video.paused || video.ended) {
+      try {
+        await video.play();
+      } catch {
+        return;
+      }
+      return;
+    }
+
+    video.pause();
+  };
+
+  const handlePresentationSliderPointerDown = () => {
+    const video = presentationVideoElement;
+
+    if (!video) {
+      return;
+    }
+
+    video.pause();
+    setIsPresentationPlaying(false);
+  };
+
+  const handlePresentationControlsDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    if ((event.target as HTMLElement).closest("button, input, select, textarea, label")) {
+      return;
+    }
+
+    const panelNode = presentationControlsRef.current;
+
+    if (!panelNode) {
+      return;
+    }
+
+    const rect = panelNode.getBoundingClientRect();
+    presentationDragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    setIsDraggingPresentationControls(true);
   };
 
   const updateSelectedCue = <K extends keyof TimelineTextCue>(
@@ -1037,6 +1288,7 @@ export function Editor() {
                             renderScale={itemScale}
                             interactive={item.id === activeSessionId}
                             currentTime={item.id === activeSessionId ? previewVideoTime : 0}
+                            syncVideoFrame={!isPresentingPreview}
                             onVideoTimeUpdate={
                               item.id === activeSessionId ? handleVideoTimeUpdate : undefined
                             }
@@ -1066,6 +1318,7 @@ export function Editor() {
                       renderScale={previewScale}
                       interactive
                       currentTime={previewVideoTime}
+                      syncVideoFrame={!isPresentingPreview}
                       onVideoTimeUpdate={handleVideoTimeUpdate}
                       onStateChange={handleStateChange}
                     />
@@ -1684,19 +1937,6 @@ export function Editor() {
 
       {isPresentingPreview && canPresentActivePreview ? (
         <div className="fixed inset-0 z-50 bg-black">
-          <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsPresentingPreview(false)}
-              className="rounded-full border border-white/20 bg-black/50 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-black/70"
-            >
-              Exit
-            </button>
-            <div className="rounded-full border border-white/15 bg-black/40 px-4 py-2 text-sm text-white/85 backdrop-blur">
-              {selectedPreset.width}x{selectedPreset.height} scaled preview
-            </div>
-          </div>
-
           <div className="flex h-full w-full items-center justify-center p-6">
             <div
               className="relative overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
@@ -1713,7 +1953,51 @@ export function Editor() {
                 syncVideoFrame={false}
                 autoPlayVideo
                 loopVideo
+                onVideoElementReady={setPresentationVideoElement}
                 onVideoTimeUpdate={handleVideoTimeUpdate}
+              />
+            </div>
+          </div>
+
+          <div
+            ref={presentationControlsRef}
+            onPointerDown={handlePresentationControlsDragStart}
+            className={`fixed z-10 rounded-[1.5rem] border border-white/10 bg-black/55 px-3 py-3 text-white backdrop-blur ${isDraggingPresentationControls ? "cursor-grabbing" : "cursor-grab"}`}
+            style={{
+              left: presentationControlPosition?.x ?? CONTROL_PANEL_MARGIN,
+              top: presentationControlPosition?.y ?? CONTROL_PANEL_MARGIN,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleTogglePresentationPlayback()}
+                className="rounded-full border border-white/15 px-4 py-1 text-sm font-semibold transition hover:bg-white/10"
+              >
+                {isPresentationPlaying ? "Pause" : "Play"}
+              </button>
+              <div className="px-2 text-sm text-white/70">
+                {selectedPreset.width}x{selectedPreset.height}
+              </div>
+              <button
+                type="button"
+                onClick={handleClosePreviewPresentation}
+                className="rounded-full px-3 py-1 text-sm font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
+              >
+                Exit
+              </button>
+            </div>
+            <div className="mt-2 px-1">
+              <input
+                type="range"
+                min={0}
+                max={Math.max(previewVideoDuration, 0)}
+                step={0.1}
+                value={Math.min(previewVideoTime, Math.max(previewVideoDuration, 0))}
+                onPointerDown={handlePresentationSliderPointerDown}
+                onChange={(event) => handlePreviewFrameChange(Number(event.target.value))}
+                disabled={previewVideoDuration <= 0}
+                className="w-full accent-white"
               />
             </div>
           </div>
@@ -1904,6 +2188,16 @@ function getDefaultControlPanelPosition(panelWidth: number): ControlPanelPositio
   return {
     x: Math.max((viewportWidth - panelWidth) / 2, CONTROL_PANEL_MARGIN),
     y: CONTROL_PANEL_DEFAULT_TOP,
+  };
+}
+
+function getDefaultPresentationControlPosition(panelWidth: number, panelHeight: number): ControlPanelPosition {
+  const viewportWidth = typeof window === "undefined" ? panelWidth + CONTROL_PANEL_MARGIN * 2 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? panelHeight + CONTROL_PANEL_MARGIN * 2 : window.innerHeight;
+
+  return {
+    x: Math.max(viewportWidth - panelWidth - CONTROL_PANEL_MARGIN, CONTROL_PANEL_MARGIN),
+    y: Math.max(viewportHeight - panelHeight - CONTROL_PANEL_MARGIN, CONTROL_PANEL_MARGIN),
   };
 }
 
